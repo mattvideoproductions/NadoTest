@@ -1,0 +1,20 @@
+# build output
+bin/
+obj/
+*.obj
+*.exp
+*.lib
+*.pdb
+# the Script Hook RDR2 SDK (may not be redistributed - see README)
+sdk/
+# the native database (get it from alloc8or/rdr3-nativedb-data)
+research/
+# harness scratch
+tools/harness/work/
+# logs the mod writes when you test it from here
+*.log
+NadoTest_findings.txt
+NadoTest_trees.txt
+NadoTest_best.txt
+NadoTest_*.wav
+NadoTest_intro/
