@@ -18,6 +18,10 @@ It has a 100-second cutscene with the Van der Linde gang that runs straight into
 Made by **MattVidPro** with **Claude** (Anthropic's AI). Claude wrote the code from recordings of every playtest, and a second AI
 (**Astra**) audited it between rounds. A video about how it was made is coming to MattVidPro's YouTube channel.
 
+## ⬇️ Download
+**[Get the latest release here](https://github.com/mattvideoproductions/NadoTest/releases/latest)** and download `NadoTest-v1.6.2.zip` (or just `NadoTest.asi` and `NadoTest.ini`).
+The mod file (`NadoTest.asi`) is built from this source, so it's on the Releases page, not in the file list above.
+
 > ⚠️ **Story mode only.** Script Hook RDR2 shuts the game down if you go online. Don't use this in Red Dead Online.
 >
 > ⚠️ **Back up your saves first.** Whatever the tornado throws stays where it lands, in your world. It can carry Arthur off in the
@@ -31,7 +35,8 @@ Made by **MattVidPro** with **Claude** (Anthropic's AI). Claude wrote the code f
    `ScriptHookRDR2.dll` and `dinput8.dll` into your Red Dead Redemption 2 folder (the one with `RDR2.exe`).
    - Steam: right-click the game → Manage → Browse local files.
    - Rockstar launcher: Settings → My installed games → Open folder.
-2. Copy **`NadoTest.asi`** and **`NadoTest.ini`** from this release into the same folder.
+2. Download **`NadoTest-v1.6.2.zip`** from the [latest release](https://github.com/mattvideoproductions/NadoTest/releases/latest) and copy **`NadoTest.asi`** and **`NadoTest.ini`** from
+   it into the same folder.
 3. Start **Story Mode**. After loading you'll see *"NadoTest v1.6.2 loaded"* at the bottom of the screen.
 4. Press **`\`** (or **hold RB and press D-pad right** on a controller) to open the menu, then pick **Spawn tornado**. It touches down
    where you're looking, and the camera swings round to show you.
