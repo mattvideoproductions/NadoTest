@@ -20,7 +20,8 @@ Made by **MattVidPro** with **Claude** (Anthropic's AI). Claude wrote the code f
 
 ## ⬇️ Download
 **[Get the latest release here](https://github.com/mattvideoproductions/NadoTest/releases/latest)** and download `NadoTest-v1.6.2.zip` (or just `NadoTest.asi` and `NadoTest.ini`).
-The mod file (`NadoTest.asi`) is built from this source, so it's on the Releases page, not in the file list above.
+`NadoTest.asi` and `NadoTest.ini` are also at the top of this repo, so the green **Code → Download ZIP** button gets you a
+working copy too.
 
 > ⚠️ **Story mode only.** Script Hook RDR2 shuts the game down if you go online. Don't use this in Red Dead Online.
 >
