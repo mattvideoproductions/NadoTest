@@ -1,4 +1,4 @@
-// NadoTest - keyboard input.
+// Tornado Redemption - keyboard input.
 #include "input.h"
 #include <vector>
 #include <algorithm>

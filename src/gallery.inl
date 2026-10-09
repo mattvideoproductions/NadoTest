@@ -6,7 +6,7 @@
 //    right glides the camera from one to the next, up / down changes room, Enter spawns that one for real.
 //  - The texture gallery: the smoke, dust and cloud effects a funnel can be made of, five at a time on a shelf, each spun
 //    into a little twister so you see it as tornado material. Left / right picks (and turns the page at the ends), Enter
-//    makes style E out of the picked one, the note key saves it to NadoTest_findings.txt.
+//    makes style E out of the picked one, the note key saves it to TornadoRedemption_findings.txt.
 
 struct Gallery
 {

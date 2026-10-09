@@ -1,4 +1,4 @@
-// NadoTest - menu, controller, world controls, test tools (auto tests, render check, FX Lab, tree tests), storm
+// Tornado Redemption - menu, controller, world controls, test tools (auto tests, render check, FX Lab, tree tests), storm
 // control, drone camera and the main loop. v1.1 adds (in the .inl parts included below): the intro cutscene, the jet balloon
 // and Storm chaser, Storm season and the tornado gun.
 #include "common.h"
@@ -15,7 +15,7 @@
 #include <cstdarg>
 #include <algorithm>
 
-static const char* kVersion = "NadoTest v1.6.2";
+static const char* kVersion = "Tornado Redemption v1.7.3";
 static bool g_menuOpen = false;          // (declared up here: the intro and the balloon close the menu)
 static float g_frameDt = 0.016f;
 static float UIdt() { return g_frameDt; }
@@ -33,6 +33,8 @@ static bool g_stormReport = true;      // [Sound] StormReport: the card when a s
 bool IntroRunning();                   // intro.inl
 bool IntroActive();
 bool IntroOwnsGrade();
+bool IntroShieldsPlayer();             // v1.7: the scene, and the first 10 s of the run for the balloon
+bool IntroHoldsSky();                  // v1.7: the scene's cloudy sky holds until you're in the balloon
 bool BalloonActive();                  // balloon.inl
 bool GalleryActive();                  // gallery.inl
 static void BalloonRemove(const char* why);
@@ -43,7 +45,25 @@ struct Keys { Hotkey menu, spawn, despawn, up, down, left, right, select, back, 
 struct PadKeys { PadCombo menu, spawn, despawn, cinematic, drone, note, next; } g_pad;
 static bool g_padOn = true;
 
-static std::string IniPath() { return ModuleDir() + "\\NadoTest.ini"; }
+static bool FileThere(const std::string& p) { return GetFileAttributesA(p.c_str()) != INVALID_FILE_ATTRIBUTES; }
+
+// v1.7.0: the mod was called NadoTest until the final version. An install that still has only the old NadoTest.ini keeps its
+// settings; the best scores and the tree scan are copied over once (the old files stay, untouched).
+static std::string IniPath()
+{
+	std::string now = ModuleDir() + "\\TornadoRedemption.ini", old = ModuleDir() + "\\NadoTest.ini";
+	return !FileThere(now) && FileThere(old) ? old : now;
+}
+
+static void CarryOverOldFiles()
+{
+	for (const char* part : { "_best.txt", "_trees.txt" })
+	{
+		std::string now = ModuleDir() + "\\TornadoRedemption" + part, old = ModuleDir() + "\\NadoTest" + part;
+		if (!FileThere(now) && FileThere(old) && CopyFileA(old.c_str(), now.c_str(), TRUE))
+			Log("carried NadoTest%s over to TornadoRedemption%s", part, part);
+	}
+}
 
 static std::string IniStr(const char* sec, const char* key, const char* def)
 {
@@ -521,7 +541,7 @@ static void StormUpdate(float t)
 		return;
 
 	// the user's own locked weather always wins (playtest 10: a spawn replaced his Thunderstorm with sunshine); the intro sets its own
-	bool scene = IntroRunning();
+	bool scene = IntroHoldsSky();
 	if (scene) {}
 	else if (g_set.weather && !g_manualWeather && g_storm.appliedWeather != g_set.weatherType)
 	{
@@ -581,8 +601,8 @@ static void StormUpdate(float t)
 		g_storm.windApplied = false;
 	}
 	// Playtest 2: "lightning is loud as hell, make it less frequent". Rare = every 25-50 s; near = strikes the funnel.
-	if (IntroRunning()) g_storm.nextLightning = std::max(g_storm.nextLightning, t + 20.0f);   // (v1.6 review: not the moment it's over)
-	if (g_set.lightning > 0 && t > g_storm.nextLightning && !IntroRunning())   // (v1.6: the intro has its own, quieter)
+	if (IntroHoldsSky()) g_storm.nextLightning = std::max(g_storm.nextLightning, t + 20.0f);   // (v1.6 review: not the moment it's over)
+	if (g_set.lightning > 0 && t > g_storm.nextLightning && !IntroHoldsSky())   // (v1.6: the intro has its own, quieter)
 	{
 		g_storm.nextLightning = t + (g_set.lightning == 2 ? RandRange(45.0f, 90.0f) : RandRange(70.0f, 140.0f));
 		if (g_set.lightning == 2 && nearest)
@@ -1296,7 +1316,7 @@ static void TreeCollisionTest()
 //   2. the nearest pinned tree in front is made invisible and collision-less through that handle for 6 s - say whether it
 //      vanished;
 //   3. GET_CLOSEST_OBJECT_OF_TYPE is asked too (does it ever see map trees?).
-// Everything goes to NadoTest_findings.txt (MAPTREE lines).
+// Everything goes to TornadoRedemption_findings.txt (MAPTREE lines).
 struct TreePin { int pin; int idx; };
 static std::vector<TreePin> g_treePins;
 static Entity g_treeChecked = 0;
@@ -1363,7 +1383,7 @@ static void MapTreeCheck()
 			for (auto& tpn : g_treePins) ENTITY::UNPIN_MAP_ENTITY(tpn.pin);
 			g_treePins.clear();
 			g_treeChecked = 0;
-			Notify("Map tree check done - logged in NadoTest_findings.txt", 4000);
+			Notify("Map tree check done - logged in TornadoRedemption_findings.txt", 4000);
 		});
 	});
 }
@@ -1417,7 +1437,7 @@ static void AutoUpdate(float t)
 	g_auto.idx++;
 	if (g_auto.idx >= (int)g_auto.steps.size())
 	{
-		AutoStop("finished - results in NadoTest.log");
+		AutoStop("finished - results in TornadoRedemption.log");
 		return;
 	}
 	AutoStep& s = g_auto.steps[g_auto.idx];
@@ -1489,7 +1509,7 @@ static void AutoRenderCheck()
 		g_holdStorm = true;
 		g_lab.slideshow = false;
 		LabStop();
-		Finding("RENDER CHECK start %s | anchor LOD default %d, NadoTest %d | answers are in the recording", kVersion, g_anchorLodDefault, g_anchorLod);
+		Finding("RENDER CHECK start %s | anchor LOD default %d, the mod %d | answers are in the recording", kVersion, g_anchorLodDefault, g_anchorLod);
 	} });
 	int total = (int)plan.size();
 	for (int k = 0; k < total; k++)
@@ -1521,7 +1541,7 @@ static void AutoPadCheck()
 
 // ======================= self-test (dev tool) =======================
 // One button, about a minute: spawns, checks, uproots, dissipates and stress-spawns tornadoes, and logs PASS/FAIL for
-// each check to NadoTest.log + NadoTest_findings.txt. Meant to catch leaks and regressions before a real playtest.
+// each check to TornadoRedemption.log + TornadoRedemption_findings.txt. Meant to catch leaks and regressions before a real playtest.
 struct SelfTest
 {
 	int pass = 0, fail = 0, skip = 0;
@@ -1838,7 +1858,7 @@ static void AutoSelfTest()
 		Info("world object count %d -> %d (telemetry only: things stream in/out)", g_st.baseObjs, CountObjects());
 		Finding("SELFTEST done: %d passed, %d failed, %d skipped", g_st.pass, g_st.fail, g_st.skip);
 		Notify("Self-test: " + std::to_string(g_st.pass) + " passed, " + std::to_string(g_st.fail) + " failed, " +
-			std::to_string(g_st.skip) + " skipped (NadoTest_findings.txt)", 9000);
+			std::to_string(g_st.skip) + " skipped (TornadoRedemption_findings.txt)", 9000);
 	} });
 	AutoRun("self-test", steps, []()
 	{
@@ -2275,13 +2295,13 @@ static void AutoSpinCheck()
 // ======================= v0.6: tree scan cache =======================
 // Playtest 6: the tree demo spent its first 40 s scanning 411 models with nothing to see ("I don't know if it's testing
 // anything"). The scan's result is now saved next to the mod and reused.
-static std::string TreeCachePath() { return ModuleDir() + "\\NadoTest_trees.txt"; }
+static std::string TreeCachePath() { return ModuleDir() + "\\TornadoRedemption_trees.txt"; }
 
 static void SaveTreeCache()
 {
 	FILE* f = nullptr;
 	if (fopen_s(&f, TreeCachePath().c_str(), "w") != 0 || !f) return;
-	fprintf(f, "# NadoTest tree scan: model height(m). Delete this file to scan again.\n");
+	fprintf(f, "# Tornado Redemption tree scan: model height(m). Delete this file to scan again.\n");
 	for (auto& t : g_spawnableTrees) fprintf(f, "%s %.1f\n", t.name.c_str(), t.height);
 	fclose(f);
 }
@@ -2400,9 +2420,9 @@ struct Survival
 	bool savedFling = true, bestLoaded = false;
 } g_surv;
 
-static std::string BestPath() { return ModuleDir() + "\\NadoTest_best.txt"; }
+static std::string BestPath() { return ModuleDir() + "\\TornadoRedemption_best.txt"; }
 
-// NadoTest_best.txt (v1.1): one "name value" line per challenge. v1.0 wrote a bare number - and playtest 10's 2:05 was
+// TornadoRedemption_best.txt (v1.1): one "name value" line per challenge. v1.0 wrote a bare number - and playtest 10's 2:05 was
 // inflated (the timer couldn't stop) - so a bare number is ignored.
 static float ReadBest(const char* name)
 {
@@ -2429,7 +2449,7 @@ static void WriteBest(const char* name, float value)
 		fclose(f);
 	}
 	if (fopen_s(&f, BestPath().c_str(), "w") != 0 || !f) return;
-	fprintf(f, "# NadoTest best scores (survive = seconds, chaser = points). Delete a line to reset it.\n");
+	fprintf(f, "# Tornado Redemption best scores (survive = seconds, chaser = points). Delete a line to reset it.\n");
 	for (auto& l : keep) fputs(l.c_str(), f);
 	fprintf(f, "%s %.2f\n", name, value);
 	fclose(f);
@@ -2674,7 +2694,7 @@ static void BuildMenu()
 	auto styleName = [](int i) { return std::string(GetStyles()[i].name); };
 
 	// ---- main: what you change while playing ----
-	g_pages[P_MAIN].title = "NADO TEST";
+	g_pages[P_MAIN].title = "TORNADO REDEMPTION";
 	g_pages[P_MAIN].sub = "Tornadoes for Red Dead Redemption 2";
 	auto& m = g_pages[P_MAIN].items;
 	m.push_back(MkAction("Spawn tornado", "Touches down where you look, just outside its reach, then comes for you. Quick key: " + Keys(g_keys.spawn, g_pad.spawn) + ".",
@@ -2716,7 +2736,7 @@ static void BuildMenu()
 	g_pages[P_MODES].title = "MODES & TOYS";
 	g_pages[P_MODES].sub = "Things to do with a tornado";
 	auto& md = g_pages[P_MODES].items;
-	md.push_back(MkAction("The intro: Arthur Had a Feeling", "A 100-second cutscene: Arthur saw the storm coming, the gang didn't - and he tells them so. Then you're flying. Stand somewhere open and flat; the camp is built around you and the tornado comes from where you look. Backspace / B skips.",
+	md.push_back(MkAction("The intro: Storm Chasers", "40 s, from anywhere: a sunny morning at the gang's camp, then Arthur, Dutch, Micah and John ride out to watch a storm over Emerald Ranch - and it comes for them. Then run for the balloon. (The first time it takes longer to start.) Backspace / B skips.",
 		[]() { IntroStart(); }));
 	{
 		Item b = MkAction("Jet balloon", "", []()
@@ -2828,7 +2848,6 @@ static void BuildMenu()
 	w.push_back(MkChoice("Chatter", "How often they talk. Rare: now and then. Chatty: a running commentary.", &g_chatter, N(3), Names({ "Rare", "Normal", "Chatty" })));
 	w.push_back(MkToggle("Voice subtitles", "Asks the game to show its own subtitle for each line (only the lines that have one).", &g_voiceSubs));
 	w.push_back(MkToggle("Storm report", "When a storm is over, a card: how many it took, the trees torn out, and how long and how high Arthur rode it.", &g_stormReport));
-	w.push_back(MkToggle("Meme sounds", "The boom under the intro's title card.", &g_set.memeSounds));
 	w.push_back(MkPage("Time & weather now", "Set the hour, lock a weather, teleport.", P_WORLD));
 
 	g_pages[P_WORLD].title = "TIME & WEATHER";
@@ -2889,9 +2908,9 @@ static void BuildMenu()
 	a.push_back(MkChoice("Funnel render", "Looped: smoke that follows the funnel. Puffs: one-shot bursts in spiral bands.", &g_set.render, N(3), Names({ "Looped only", "Puffs only", "Both" })));
 	a.push_back(MkChoice("Funnel engine", "New tornadoes. World-space renders solid (render check, playtest 5); legacy anchors mostly don't.", &g_set.engine, N(2), Names({ "Legacy anchors", "World-space" })));
 	a.push_back(MkChoice("Push method", "How it moves things. Hybrid (the default) sets speed for people and forces for props; Velocity and Force are the two halves on their own, for testing.", &g_set.pushMethod, N(3), Names({ "Hybrid", "Velocity", "Force" })));
-	a.push_back(MkAction("Write snapshot to log", "Writes every tornado's numbers (effects alive, what it holds, frame time) to NadoTest.log - handy right after something looks wrong.", []() { for (auto& tp : g_tornadoes) tp->Snapshot("MANUAL"); Notify("Snapshot written"); }));
+	a.push_back(MkAction("Write snapshot to log", "Writes every tornado's numbers (effects alive, what it holds, frame time) to TornadoRedemption.log - handy right after something looks wrong.", []() { for (auto& tp : g_tornadoes) tp->Snapshot("MANUAL"); Notify("Snapshot written"); }));
 	a.push_back(MkChoice("Anchor hide mode", "Legacy engine only. Visible = shows the apples the effects ride on.", &g_anchorHideMode, N(3), Names({ "Visible", "Invisible", "Alpha 0" })));
-	a.push_back(MkAction("Reload NadoTest.ini", "Reads NadoTest.ini again, so you can change a setting there without restarting the game.", []() { LoadConfig(); Notify("Config reloaded"); }));
+	a.push_back(MkAction("Reload TornadoRedemption.ini", "Reads TornadoRedemption.ini again, so you can change a setting there without restarting the game.", []() { LoadConfig(); Notify("Config reloaded"); }));
 	a.push_back(MkPage("Tree tools", "Manual hide / restore / spawn / uproot.", P_TREES));
 
 	g_pages[P_DEV].title = "DEVELOPER TOOLS";
@@ -2900,7 +2919,7 @@ static void BuildMenu()
 	dv.push_back(MkAction("Spin check (hands-free, ~1.5 min)", "Rings of train smoke aimed differently. Say which one SWIRLS around.", []() { g_menuOpen = false; AutoSpinCheck(); }));
 	dv.push_back(MkAction("Render check (hands-free, ~2.5 min)", "Playtest 5's smoke-column check (world-space won). Say: solid, flickers, or nothing.", []() { g_menuOpen = false; AutoRenderCheck(); }));
 	dv.push_back(MkAction("Controller check (20 s)", "Press each button: logs which ones reach the mod and how (XInput or the game).", []() { g_menuOpen = false; AutoPadCheck(); }));
-	dv.push_back(MkAction("Scan for spawnable trees", "Finds which full-size trees the game lets us spawn (~40 s, once - remembered in NadoTest_trees.txt).", []() { g_menuOpen = false; AutoTreeScan(); }));
+	dv.push_back(MkAction("Scan for spawnable trees", "Finds which full-size trees the game lets us spawn (~40 s, once - remembered in TornadoRedemption_trees.txt).", []() { g_menuOpen = false; AutoTreeScan(); }));
 	dv.push_back(MkAction("Tree collision check", "Face a map tree 3-10 m away: hides it and checks if you could walk through.", []() { g_menuOpen = false; TreeCollisionTest(); }));
 	dv.push_back(MkAction("Memory now", "The game's RAM and video memory right now, and what the mod has out (also logged every 30 s as MEM lines). RDR2 on Vulkan fills a big card's memory as a cache - a high number alone isn't a leak.",
 		[]()
@@ -3490,7 +3509,7 @@ static void ResetAfterScriptRestart()
 		return;
 	Log("script restarted by Script Hook (story reload?) - forgetting %d tornadoes and every handle from the old session", (int)g_tornadoes.size());
 	// v1.1 audit: the modes give back the settings they changed, and the global switches go back to the game
-	if (g_in.stage >= 1 && g_in.stage <= 4) IntroRestoreSettings();
+	if (g_in.stage >= 1) IntroRestoreSettings();   // (v1.7: the run for the balloon changed Arthur's setting too)
 	if (g_bal.chase) g_set.movement = g_bal.savedMove;
 	if (g_surv.on) { g_set.arthur = g_surv.savedArthur; g_set.movement = g_surv.savedMove; g_set.speed = g_surv.savedSpeed; g_set.flingChase = g_surv.savedFling; }
 	if (g_storm.active || g_in.stage)
@@ -3526,7 +3545,7 @@ static void ResetAfterScriptRestart()
 	g_menuOpen = false;
 	g_wasDead = false;
 	// v1.1 (no natives on old handles; global switches are fine to reset)
-	if (g_in.stage) { MISC::SET_TIME_SCALE(1.0f); PLAYER::SET_PLAYER_CONTROL(PLAYER::PLAYER_ID(), TRUE, 0, FALSE); HUD::DISPLAY_HUD(TRUE); MAP::DISPLAY_RADAR(TRUE); AUDIO::SET_AUDIO_FLAG("AllowScriptedSpeechInSlowMo", FALSE); AUDIO::SET_AUDIO_FLAG("DisableAbortConversationForDeathAndInjury", FALSE); }
+	if (g_in.stage) { CLOCK::PAUSE_CLOCK(FALSE, 0); MISC::SET_TIME_SCALE(1.0f); PLAYER::SET_PLAYER_CONTROL(PLAYER::PLAYER_ID(), TRUE, 0, FALSE); HUD::DISPLAY_HUD(TRUE); MAP::DISPLAY_RADAR(TRUE); AUDIO::SET_AUDIO_FLAG("AllowScriptedSpeechInSlowMo", FALSE); AUDIO::SET_AUDIO_FLAG("DisableAbortConversationForDeathAndInjury", FALSE); }
 	// v1.1 audit 2: Arthur himself (a fresh handle) - the intro stops him ragdolling, the balloon sets "don't ragdoll out"
 	if (g_in.stage >= 1 && g_in.stage <= 4) PED::SET_PED_CAN_RAGDOLL(PLAYER::PLAYER_PED_ID(), TRUE);
 	if (g_bal.on) PED::SET_PED_CONFIG_FLAG(PLAYER::PLAYER_PED_ID(), 15, FALSE);
@@ -3558,7 +3577,7 @@ static void SyncMenuChoices()
 	static const int kWeatherFor[] = { 0, 1, 0, 2 };   // keep yours, storm clouds = THUNDER (v1.1; OVERCASTDARK never looked dark), thunderstorm, rain
 	g_set.weather = g_set.weatherMode > 0;
 	if (g_set.weather) g_set.weatherType = kWeatherFor[g_set.weatherMode % 4];
-	g_shieldPlayer = IntroRunning() || BalloonActive();   // v1.1: hands off Arthur in the intro and in the balloon
+	g_shieldPlayer = IntroShieldsPlayer() || BalloonActive();   // v1.1: hands off Arthur in the intro and in the balloon (v1.7: and 10 s after it)
 	g_set.softLanding = g_set.landings != 2;             // v1.3: Landings: Real = no catch
 	UI::g_clean = g_set.cinematic;                         // v1.1 audit 2: UI::Draw() runs every frame, so it hides its labels itself
 }
@@ -3601,6 +3620,7 @@ void ScriptMain()
 {
 	srand(GetTickCount());
 	ResetAfterScriptRestart();
+	CarryOverOldFiles();
 	LoadConfig();
 	PadInit();
 	LoadTreeCache();
@@ -3611,11 +3631,18 @@ void ScriptMain()
 		kLabLoopedCount, kLabPuffCount, (int)GetStyles().size());
 	// Astra: log exactly which build is running and from where (playtest 3 ran an old build by accident).
 	Log("BUILD %s compiled %s %s | module dir %s | ini %s", kVersion, __DATE__, __TIME__, ModuleDir().c_str(),
-		GetFileAttributesA((ModuleDir() + "\\NadoTest.ini").c_str()) != INVALID_FILE_ATTRIBUTES ? "found" : "MISSING (defaults used)");
+		IniPath().c_str());
 	PreloadTornadoAssets();
 	UI::Preload();
 	Notify(std::string(kVersion) + " loaded - menu: " + g_keys.menu.text + " / pad " + g_pad.menu.text + "   clean footage: " +
 		g_keys.cinematic.text + " / pad " + g_pad.cinematic.text, 8000);
+	// both would run at once (two menus, two sets of tornadoes): say so until the old one is gone
+	if (FileThere(ModuleDir() + "\\NadoTest.asi"))
+	{
+		Log("OLD NadoTest.asi is still in the game folder - both mods are loaded");
+		UI::HelpTip("~COLOR_RED~NadoTest.asi~s~ is still in your game folder. It's the old name of this mod: delete it (and NadoTest.ini) "
+			"so only Tornado Redemption runs.", 20.0f);
+	}
 	float nextSnap = 0, nextOrphanRetry = 0;
 	bool clockPaused = false;
 	DWORD lastLoopTick = GetTickCount();

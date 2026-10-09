@@ -1,4 +1,4 @@
-// NadoTest v1.1 - the RDR2-style UI kit: the game's own menu textures, fonts (markup), sounds and feed notifications, plus the
+// Tornado Redemption v1.1 - the RDR2-style UI kit: the game's own menu textures, fonts (markup), sounds and feed notifications, plus the
 // cutscene layer (letterbox, subtitles, chapter card, objective, honor toast) and a couple of sounds of our own.
 // Sources: research\ui_world_research.md (Halen84's native menu base, Rockstar's scripts, femga's lists).
 #pragma once
@@ -26,20 +26,20 @@ namespace UI
 	void Letterbox(float amount);          // 0..1, eased toward
 	void Subtitle(const char* speaker, const char* text, float alpha);   // this frame only
 	void ChapterCard(const char* title, const char* sub, float alpha);   // this frame only
-	void PlaceCard(const char* place, const char* sub, float alpha);     // v1.4: bottom left, this frame only (where and when a scene is)
+	void PlaceCard(const char* place, const char* sub, float alpha, float scale = 1.0f);   // v1.4: bottom left, this frame only (where and when a scene is)
 	void PromptMeter(const char* text, float fill);                       // v1.5: a button prompt with a fill bar, this frame only
 	void Objective(const char* text, float seconds);
 	void HonorLost(bool hudHidden = false);   // the game's toast, or (HUD hidden, or refused) the mod's own sting - one of them
 	// notifications
 	void HelpTip(const char* text, float seconds);   // top-left, RDR2 help-text style ("" clears)
 	void Toast(const char* title, const char* text, float seconds);
-	void Shard(const char* title, const char* sub, float seconds);   // big centred title card
+	void Shard(const char* title, const char* sub, float seconds, bool good = false);   // big centred title card (red; good = a success, cream)
 	void ScorePlate(const char* title, const char* big, const char* sub, const char* right, float meter);   // this frame only
 	int FeedToastIcon(const char* title, const char* sub, const char* dict, const char* tex, int ms);   // the game's own toast (0 = refused)
 
 	// sounds of our own (Windows audio, no samples - synthesized at load) and optional voice files for the intro
 	void PlayBoom(bool soft = false);     // v1.6.1: soft = 14 dB down (the intro's title)
 	void PlayWhoosh(bool soft = false);   // v1.2: the jet burners lighting (v1.6.1: soft = 8 dB down, the intro's lift-off)
-	void PlayVoiceFile(const char* id);    // NadoTest_intro\<id>.wav if it exists
+	void PlayVoiceFile(const char* id);    // TornadoRedemption_intro\<id>.wav if it exists
 	extern bool g_mute;                    // the harness mutes audio
 }

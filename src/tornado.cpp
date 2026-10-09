@@ -1,4 +1,4 @@
-// NadoTest - tornado implementation.
+// Tornado Redemption - tornado implementation.
 #include "tornado.h"
 #include <algorithm>
 #include <cstring>
@@ -225,7 +225,7 @@ std::vector<Style>& GetStyles()
 	static const std::vector<const char*> kDustWall = { "ent_dst_dust", "bang_dust" };
 	// v0.6 (playtest 6: "I was thinking about the train smoke too, is a good one"): the locomotive's thick black exhaust,
 	// aimed along the direction of spin (tangent streamers) so the smoke itself is thrown round the funnel. Experimental:
-	// the emitter's axis is unknown, so the tilt is NadoTest.ini [Visuals] StreamerPitch and the Spin check compares four.
+	// the emitter's axis is unknown, so the tilt is TornadoRedemption.ini [Visuals] StreamerPitch and the Spin check compares four.
 	// v0.7, playtest 7's Spin check: the locomotive exhaust never showed ("I don't see anything", variants 1-4); the ambient
 	// train smoke did and "we definitely can see some swirling smoke" (variant 5). So the streamers use that one.
 	static const std::vector<const char*> kTrain = { "ent_amb_trn4_train_smoke" };
@@ -2689,7 +2689,7 @@ void Tornado::TouchdownBlast(float t)
 		GRAPHICS::START_PARTICLE_FX_NON_LOOPED_AT_COORD(i % 3 == 0 ? "exp_grd_smoke_post" : (i % 3 == 1 ? "bang_dirt_dry" : "ent_dst_dust"),
 			p.x, p.y, p.z, 0, 0, RandRange(0, 360), 3.5f * sqrtf(sz), FALSE, FALSE, FALSE);
 	}
-	if (g_set.lightning > 0 && !opts.mini && !opts.display)
+	if (g_set.lightning > 0 && !opts.mini && !opts.display && !IntroHoldsSky())   // (v1.7: the intro has its one flash, far off)
 		MISC::FORCE_LIGHTNING_FLASH_AT_COORDS(base.x + RandRange(-8.f, 8.f), base.y + RandRange(-8.f, 8.f), base.z, -1.0f);   // -1: as in all of Rockstar's calls
 	Log("'%s' TOUCHDOWN blast", label.c_str());
 }

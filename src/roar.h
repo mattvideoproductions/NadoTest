@@ -1,4 +1,4 @@
-// NadoTest v1.1 - the tornado's roar. The user, after v1.0: "wind or tornado sfx... can we add that in at all during a
+// Tornado Redemption v1.1 - the tornado's roar. The user, after v1.0: "wind or tornado sfx... can we add that in at all during a
 // tornado... like during a regular nado experience". The game has no tornado sound, so this one is synthesized live (no
 // samples): a deep rumble, a gusting whoosh, a wind howl and the odd crack of debris, louder the closer the funnel, panned to
 // where it is. It plays through Windows (it mixes with the game's own sound and goes quiet when the game is paused).

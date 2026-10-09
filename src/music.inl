@@ -1,4 +1,4 @@
-// NadoTest v1.1 - optional mission music while a tornado is out. Part of script.cpp.
+// Tornado Redemption v1.1 - optional mission music while a tornado is out. Part of script.cpp.
 // The user: "optional intense music mission style or something... like during a regular nado experience".
 // It's the game's own interactive music (research\music_research.md: every name below is a plain string in Rockstar's
 // single-player scripts). The pattern is Rockstar's: PREPARE until it's ready, then TRIGGER; a START layer when a tornado
@@ -56,7 +56,7 @@ void MusicUpdate(float t)
 	if (g_musicMode > 0)
 	{
 		if (IntroRunning())
-			want = g_in.stage == 4 ? (g_in.clock >= kIntroSpawn + 1.0f ? 2 : g_in.clock >= 4.5f ? 1 : 0) : 0;
+			want = g_in.stage == 4 ? (g_in.clock >= kIntroSpawn + 1.0f ? 2 : g_in.clock >= kIntroThunder ? 1 : 0) : 0;   // (v1.7: a sunny morning has no score)
 		else
 		{
 			float nd;

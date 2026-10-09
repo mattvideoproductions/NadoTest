@@ -1,5 +1,5 @@
 @echo off
-rem Builds bin\NadoTest.asi with the VS 2019 Build Tools (x64). Run from any directory.
+rem Builds bin\TornadoRedemption.asi with the VS 2019 Build Tools (x64). Run from any directory.
 setlocal
 set ROOT=%~dp0
 rem The Script Hook RDR2 SDK: set SDK yourself, or put it in sdk\ next to this file (sdk\inc\main.h, sdk\lib\ScriptHookRDR2.lib).
@@ -15,6 +15,6 @@ if not exist "%ROOT%obj" mkdir "%ROOT%obj"
 cl /nologo /O2 /MT /EHsc /std:c++17 /W3 /DNDEBUG /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS /I "%SDK%\inc" /Fo"%ROOT%obj\\" ^
   "%ROOT%src\main.cpp" "%ROOT%src\common.cpp" "%ROOT%src\input.cpp" "%ROOT%src\pad.cpp" "%ROOT%src\tornado.cpp" "%ROOT%src\script.cpp" ^
   "%ROOT%src\ui.cpp" "%ROOT%src\roar.cpp" ^
-  /LD /Fe"%ROOT%bin\NadoTest.asi" /link /NOLOGO "%SDK%\lib\ScriptHookRDR2.lib" user32.lib || exit /b 1
-copy /Y "%ROOT%NadoTest.ini" "%ROOT%bin\NadoTest.ini" >nul
+  /LD /Fe"%ROOT%bin\TornadoRedemption.asi" /link /NOLOGO "%SDK%\lib\ScriptHookRDR2.lib" user32.lib || exit /b 1
+copy /Y "%ROOT%TornadoRedemption.ini" "%ROOT%bin\TornadoRedemption.ini" >nul
 echo BUILD OK

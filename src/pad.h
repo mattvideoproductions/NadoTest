@@ -1,4 +1,4 @@
-// NadoTest - controller input (v0.4, playtest 4: "I would appreciate straight up controller controls").
+// Tornado Redemption - controller input (v0.4, playtest 4: "I would appreciate straight up controller controls").
 // Two sources, whichever sees the pad:
 //   1. XInput, read directly (Xbox pads, and most pads routed through Steam Input);
 //   2. the game's own control actions (INPUT_FRONTEND_*), for pads RDR2 reads natively (e.g. a DualSense).

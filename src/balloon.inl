@@ -1,4 +1,4 @@
-// NadoTest v1.1 - the jet balloon and the Storm chaser challenge. Part of script.cpp (included there, so it can use the
+// Tornado Redemption v1.1 - the jet balloon and the Storm chaser challenge. Part of script.cpp (included there, so it can use the
 // tornado list, the storm and the camera helpers); kept in its own file to stay readable.
 //
 // The user, after v1.0: "set up hot air balloon intro tornado mode or maybe it can be its own mini challenge or setting in
@@ -506,7 +506,7 @@ void BalloonUpdate(float dt, float t)
 // ======================= Storm chaser (balloon challenge) =======================
 // Fly as close to the funnel as you dare: points come faster the closer you are (x1 at the edge of the pull, x10 at the wall),
 // and touching the wall gets you caught - it spins the balloon round and throws it out. 90 seconds; the best score is saved.
-// (the best scores live in NadoTest_best.txt - ReadBest / WriteBest in script.cpp)
+// (the best scores live in TornadoRedemption_best.txt - ReadBest / WriteBest in script.cpp)
 
 void ChaseEnd(const char* why)
 {

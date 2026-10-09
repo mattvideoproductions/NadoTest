@@ -1,7 +1,7 @@
-// NadoTest v1.1 - the v1.1 systems check (Tests & tools, hands-free, ~30 s). Part of script.cpp. Checks in the real game what
+// Tornado Redemption v1.1 - the v1.1 systems check (Tests & tools, hands-free, ~30 s). Part of script.cpp. Checks in the real game what
 // the offline harness can't: the balloon spawns, seats Arthur, gets its envelope and climbs; a mini twister spawns and stays
 // out of the storm; a Storm season warning comes up and cleans up; the menu's textures load; the stand-in trees stream in.
-// Every line goes to NadoTest_findings.txt as SELFTEST PASS / FAIL (same as the self-test).
+// Every line goes to TornadoRedemption_findings.txt as SELFTEST PASS / FAIL (same as the self-test).
 
 struct V11Check { float z0 = 0; int stormWas = 0; TornadoRef mini; bool savedGun = false; int season = 0; } g_v11;
 
@@ -128,7 +128,7 @@ static void AutoV11Check()
 	{
 		Finding("V11CHECK %s: %d pass, %d fail", g_st.fail ? "FAIL" : "PASS", g_st.pass, g_st.fail);
 		char b[160];
-		sprintf_s(b, "Systems check: %d passed, %d failed (NadoTest_findings.txt)", g_st.pass, g_st.fail);
+		sprintf_s(b, "Systems check: %d passed, %d failed (TornadoRedemption_findings.txt)", g_st.pass, g_st.fail);
 		Notify(b, 8000);
 	} });
 	AutoRun("v1.1 systems check", steps, []() { BalloonRemove("check ended"); g_set.season = g_v11.season; });

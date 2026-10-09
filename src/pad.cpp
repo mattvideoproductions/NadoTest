@@ -1,4 +1,4 @@
-// NadoTest - controller input implementation.
+// Tornado Redemption - controller input implementation.
 #include "pad.h"
 #include "common.h"
 #include <Xinput.h>
@@ -217,6 +217,6 @@ PadCombo ParsePadCombo(const std::string& raw)
 		c.press = ButtonFromName(s.substr(plus + 1));
 	}
 	if (c.press < 0)
-		Log("pad: could not read controller combo '%s' (check NadoTest.ini)", raw.c_str());
+		Log("pad: could not read controller combo '%s' (check TornadoRedemption.ini)", raw.c_str());
 	return c;
 }

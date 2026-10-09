@@ -1,4 +1,4 @@
-// NadoTest v1.1 - the tornado's roar (see roar.h).
+// Tornado Redemption v1.1 - the tornado's roar (see roar.h).
 // No thread: the script refills a queue of eight ~70 ms Windows audio buffers every frame. If the script stalls (a loading
 // wait, the pause menu) the queue simply runs dry and it goes quiet.
 #include "roar.h"

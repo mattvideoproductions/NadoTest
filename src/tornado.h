@@ -1,4 +1,4 @@
-// NadoTest - tornado visuals (looped particles on spinning anchors or in world space + world-space puffs), zoned
+// Tornado Redemption - tornado visuals (looped particles on spinning anchors or in world space + world-space puffs), zoned
 // vortex physics, scripted tree uproots, the floating-prop sweeper and Arthur's soft landing.
 #pragma once
 #include "common.h"
@@ -82,7 +82,7 @@ struct Settings
 	bool memeSounds = true;      // [Intro] MemeSounds: the intro's one dramatic "boom" (a synthesized sound, no samples)
 	bool flatten = true;         // grass and bushes flattened along its track (the game's vegetation modifiers)
 
-	// from NadoTest.ini
+	// from TornadoRedemption.ini
 	int maxEntities = 150;
 	float velocityGain = 2.5f;
 	float forceGain = 1.0f;
@@ -416,7 +416,8 @@ int ImpactsShown();
 int PerfOrbiters();
 float PlayerLastInWall();                 // v1.0: for the camera's "you're in it" shake
 int ArthurThrows();                       // v1.6: how many times the tornado has thrown him (the ride camera hands back on a throw)
-bool InSaintDenis(const V3& p, float margin);   // v1.6.2: the intro isn't staged there
+bool InSaintDenis(const V3& p, float margin);   // v1.6.2: big-town checks
+bool IntroHoldsSky();                            // v1.7 (intro.inl): the scene's sky - no lightning of ours
 void SweepAfterTornado(const V3& base, float radius, float t);   // v0.7: bring down what it left hanging
 int PerfMaxEntities();
 float PerfPuffMul();

@@ -1,7 +1,86 @@
-# NadoTest changelog
+# Tornado Redemption changelog
+
+The mod was called **NadoTest** up to v1.6.2.
 
 Version numbers are **playtested releases** (decided 2026-09-27). Every build that goes to a playtest is archived in
 `builds\<version>\` with its SHA-256. Playtest evidence (transcripts, frames, logs, findings) lives in
+
+## v1.7.3 (2026-10-09, from playtest 21): the last beats
+The user: "nearly perfect until john says it's right on us, then dutch takes a moment to deliver his line and everyone runs while he
+does nothing, then it awkwardly cuts to micah who isn't even facing arthur".
+
+- **Dutch** speaks 0.4 s into his shot and breaks into a run a second into his line.
+- **Micah** turns to Arthur for "Well this is fun, ain't it?" - his back to the drop, the funnel coming up behind him, over
+  Arthur's shoulder - and Arthur shoves him from the front (Rockstar's face-to-face shove), backwards off the ridge.
+- The end is 1.6 s shorter (73.4 s to the handoff).
+
+## v1.7.2 (2026-10-09, from playtest 20): the cut
+fully in vegas myself, give some transition time" - it played through, every line heard, no crash.
+
+- **Handles for the edit:** every shot has a lead-in (a line starts 1.2 s in) and a tail (a cut waits a second after the shot's
+  last word). The scene runs about 75 s to the handoff; the edit trims it.
+- **The farewell:** Dutch stands out in front of the line and asks Arthur, shot over Dutch's shoulder, with an upset John beside
+  Arthur (the women out of it).
+- **Faces:** Arthur angry in the bickering, Micah smug, John upset, everyone scared once the storm comes, Arthur cocky at the push.
+- **Valentine:** the camera and the riders' path are found with the place: a camera that sees the riders and the town, a path clear
+  of trees; slower horses.
+- **The ridge:** the arrival camera is found with the place too (it sees the riders' marks and the ranch), the dip gives the ranch
+  a moment to load, and the riders come up from behind the camera. Micah and Arthur's words there are in over-the-shoulder
+  close-ups. The thunder shot keeps their heads clear of the letterbox.
+- **The touchdown's hero shot:** a new shot down at Emerald Ranch, the funnel circling its yard and taking its cattle, pigs, a
+  horse and farmhands (set down there for it).
+- **The end:** John yells from behind the four (he runs only at the cut), Dutch gets his own shot to say his piece and run, Micah's
+  last line is close on his face with Arthur behind him, and the push is over Arthur's shoulder.
+
+## v1.7.1 (2026-10-09, from playtest 19): the crash, and the polish
+seconds but what I saw was amazing great work - fix the FFFF error... polish fix correct pass".
+
+- **The crash (ERROR FFFFFFFF):** it froze 2.5 s into the Valentine shot. In that window the scene had switched Rockstar's camp
+  pieces back off and deleted the camp's people (the last line in the log), and a load-scene for the ridge, 1.5 km away, was
+  running. Now:
+  - the camp pieces are put back only once the whole scene and the run for the balloon are over and Arthur is 350 m or more from
+    the camp, with the camp's people gone long before (and taken out of their camp spots first);
+  - no load-scene at all. A move to a new place is a short dip to black: the horses go there first, frozen, the picture waits for
+    the ground round Arthur to load (3 s at most), then they're put on it and set going as it comes back.
+- **The opening** is longer (4.2 s), with the gang's title card bigger.
+- **Dutch** turns to Arthur for his line. (Rockstar plays it as one of four takes at random, "You need some recreation, my boy"
+  among them; all four are said to Arthur, and the one take that wouldn't fit is drawn again before it's heard. "Don't fall off."
+  is drawn the same way.)
+- **Susan** gets her own shot: "Well, hurry it along." with a shooing hand, then she walks back into camp; Abigail's word to John is
+  in the same shot.
+- **Micah and Arthur** in tight over-the-shoulder close-ups: over Arthur's shoulder for Micah's line, over Micah's for "Shut the
+  hell up."
+- **The ride out:** the riders take the clearest way out of camp (it's measured), in pairs, and Jack sits by the fire instead of
+  wandering into the shot.
+- **Valentine:** horses start at 4 m/s, not 6.5 (one reared up); more kinds of road are tried when it looks for the road.
+- **The ridge** must have a real drop now (4 m or more if there's one; the drop counts for more than the height). The places are
+  looked for again on the first run (the old remembered spots are ignored).
+
+## v1.7.0 (2026-10-09): Tornado Redemption, and a new intro
+For the video's cold open. The user: "FIX INTRO, 30s to 40s MAX AND LEGIBLE COMEDY", and "rename the mod so it's no longer
+nado test... and the mod itself too, final version". Not playtested yet.
+
+- **The name:** Tornado Redemption. The files are `TornadoRedemption.asi` and `TornadoRedemption.ini`, and the log, findings,
+  best scores and tree scan follow. An install that still has only `NadoTest.ini` keeps using it; the best scores and the tree scan
+  are copied over once. If the old `NadoTest.asi` is still in the game folder, a tip says to delete it (both would run at once).
+- **The intro: "Storm Chasers"** (replaces "Arthur Had a Feeling"; 40 s; `INTRO.md` has the shot list):
+  - from anywhere, the game takes you to the gang's camp at Horseshoe Overlook on a sunny morning. It's **Rockstar's own camp**:
+    the map pieces their camp script switches on (put back the way they were once the scene has left), with the gang on Rockstar's
+    own camp spots;
+  - Dutch, John, Micah and Arthur tell Susan Grimshaw and Abigail they're going; Micah and Arthur bicker; they ride out, past
+    Valentine, and pull up on a ridge above Emerald Ranch as the weather turns (sunny, cloudy, overcast, dark);
+  - thunder once, far off; the tornado comes down on the ranch; John points ("It's right on us, come on!"), he and Dutch run ("We
+    have a plan. My friends."), and Arthur pushes Micah off the ridge ("Don't fall off.") into the funnel;
+  - then it's gameplay: *Reach the hot air balloon* that's appeared behind you, Cain in it, the tornado on your heels. 10 s it
+    can't take you, then it can, until you're in. Boarding is "mission complete" ("Okay, here goes nothing.");
+  - all eleven lines are real lines from the game's story, in three real back-and-forths (`research\intro_v17_lines.md`), with
+    the game's own subtitles; Rockstar's own shove (the player's melee shove from behind), startle and pointing clips;
+  - the road out of Valentine and the ridge are found in your game the first time (a road-network lookup and a ground scan) and
+    remembered in `TornadoRedemption_intro.txt`; a cut to a new place waits (a little) for its ground to load;
+  - no colour grade, no slow motion, no synthesized booms, and no lightning from the storm until you're in the balloon.
+- **Removed with the old intro:** the `[Intro]` Hour, Grade, Outfits and MemeSounds settings, and the Meme sounds toggle. New:
+  `[Intro] CampMap` (All, Base or None).
+- The "mission complete" card is cream, not the failure red.
 
 ## v1.6.2 (2026-10-06, built from playtest 16): the crash, and the release
 but it errored out" - another ERROR FFFFFFFF, the fifth.

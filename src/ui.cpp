@@ -1,4 +1,4 @@
-// NadoTest v1.1 - the RDR2-style UI kit. See ui.h.
+// Tornado Redemption v1.1 - the RDR2-style UI kit. See ui.h.
 #include "ui.h"
 #include <cstdio>
 #include <cstdint>
@@ -169,7 +169,8 @@ void Letterbox(float amount) { if (amount < 0) g_letter = 0; g_letterWant = Clam
 void Objective(const char* text, float seconds) { Set(g_objective, text, nullptr, seconds); }
 void HelpTip(const char* text, float seconds) { Set(g_help, text, nullptr, seconds); }
 void Toast(const char* title, const char* text, float seconds) { Set(g_toast, title, text, seconds); }
-void Shard(const char* title, const char* sub, float seconds) { Set(g_shard, title, sub, seconds); }
+static bool g_shardGood = false;   // v1.7: a success (cream), not a failure (red)
+void Shard(const char* title, const char* sub, float seconds, bool good) { Set(g_shard, title, sub, seconds); g_shardGood = good; }
 
 // Subtitles, the chapter card and the score plate are drawn in Draw(), after the letterbox, so they sit on top of it.
 struct FrameText { std::string a, b, c, d; float alpha = 0, meter = 0; bool on = false; };
@@ -209,19 +210,20 @@ static void DrawPromptMeter(const char* text, float fill)
 	DrawBox(0.4f, 0.756f, 0.2f, 0.007f, 60, 50, 42, 220);
 	DrawBox(0.4f, 0.756f, 0.2f * Clamp(fill, 0, 1), 0.007f, 200, 40, 30, 255);
 }
-void PlaceCard(const char* place, const char* sub, float alpha)
+void PlaceCard(const char* place, const char* sub, float alpha, float scale)
 {
+	g_place.meter = scale;   // (v1.7.1: the size, in the spare slot)
 	g_place.on = true; g_place.a = place ? place : ""; g_place.b = sub ? sub : ""; g_place.alpha = alpha;
 }
 // v1.4: where and when, bottom left above the letterbox, like a film's opening card
-static void DrawPlaceCard(const char* place, const char* sub, float alpha)
+static void DrawPlaceCard(const char* place, const char* sub, float alpha, float k = 1.0f)
 {
 	int a = (int)(255 * Clamp(alpha, 0, 1));
 	if (a <= 0) return;
-	float y = g_letter > 0.5f ? 0.765f : 0.80f;
-	Text(place, 0.06f, y, 0.62f, 236, 230, 214, a, LEFT, "title", true);
-	DrawBox(0.06f, y + 0.043f, 0.13f * Clamp(alpha * 1.3f, 0, 1), 0.0018f, 200, 40, 30, a * 3 / 4);
-	Text(sub, 0.06f, y + 0.05f, 0.36f, 236, 230, 214, a, LEFT, "body", true);
+	float y = (g_letter > 0.5f ? 0.765f : 0.80f) - 0.07f * (k - 1.0f);   // (v1.7.1: a bigger card sits higher, clear of the letterbox)
+	Text(place, 0.06f, y, 0.62f * k, 236, 230, 214, a, LEFT, "title", true);
+	DrawBox(0.06f, y + 0.043f * k, 0.13f * k * Clamp(alpha * 1.3f, 0, 1), 0.0018f * k, 200, 40, 30, a * 3 / 4);
+	Text(sub, 0.06f, y + 0.05f * k, 0.36f * (1.0f + (k - 1.0f) * 0.6f), 236, 230, 214, a, LEFT, "body", true);
 }
 static void DrawChapterCard(const char* title, const char* sub, float alpha)
 {
@@ -329,7 +331,7 @@ void Draw()
 	if (g_clean)
 	{
 		if (g_card.on) DrawChapterCard(g_card.a.c_str(), g_card.b.c_str(), g_card.alpha);
-		if (g_place.on) DrawPlaceCard(g_place.a.c_str(), g_place.b.c_str(), g_place.alpha);
+		if (g_place.on) DrawPlaceCard(g_place.a.c_str(), g_place.b.c_str(), g_place.alpha, g_place.meter > 0 ? g_place.meter : 1.0f);
 		if (g_sub.on) DrawSubtitle(g_sub.a.c_str(), g_sub.b.c_str(), g_sub.alpha);
 		if (g_prompt.on) DrawPromptMeter(g_prompt.a.c_str(), g_prompt.meter);
 		g_plate.on = g_card.on = g_sub.on = g_place.on = g_prompt.on = false;
@@ -359,7 +361,7 @@ void Draw()
 	{
 		float grow = 0.9f + 0.1f * Clamp((g_now - g_shard.start) / 0.3f, 0, 1);
 		SoftBox(0.5f, 0.25f, 0.5f * grow, 0.15f, (int)(200 * f));
-		Text(g_shard.a.c_str(), 0.5f, 0.205f, 1.0f * grow, 230, 45, 35, (int)(255 * f), CENTRE, "title", true);
+		Text(g_shard.a.c_str(), 0.5f, 0.205f, 1.0f * grow, g_shardGood ? 240 : 230, g_shardGood ? 228 : 45, g_shardGood ? 200 : 35, (int)(255 * f), CENTRE, "title", true);
 		if (!g_shard.b.empty()) Text(g_shard.b.c_str(), 0.5f, 0.277f, 0.36f, 240, 236, 225, (int)(255 * f), CENTRE, "body", true);
 	}
 	if ((f = Fade(g_objective, 0.6f, 0.8f)) > 0)
@@ -374,7 +376,7 @@ void Draw()
 	}
 	if (g_plate.on) DrawScorePlate(g_plate.a.c_str(), g_plate.b.c_str(), g_plate.c.c_str(), g_plate.d.c_str(), g_plate.meter);
 	if (g_card.on) DrawChapterCard(g_card.a.c_str(), g_card.b.c_str(), g_card.alpha);
-	if (g_place.on) DrawPlaceCard(g_place.a.c_str(), g_place.b.c_str(), g_place.alpha);
+	if (g_place.on) DrawPlaceCard(g_place.a.c_str(), g_place.b.c_str(), g_place.alpha, g_place.meter > 0 ? g_place.meter : 1.0f);
 	if (g_sub.on) DrawSubtitle(g_sub.a.c_str(), g_sub.b.c_str(), g_sub.alpha);
 	if (g_prompt.on) DrawPromptMeter(g_prompt.a.c_str(), g_prompt.meter);
 	g_plate.on = g_card.on = g_sub.on = g_place.on = g_prompt.on = false;
@@ -453,7 +455,7 @@ static bool MakeBoom()
 		s = tanh(s * 1.8) * 0.92;                            // a little warmth
 		pcm[i] = (int16_t)(s * 32000);
 	}
-	g_boomPath = ModuleDir() + "\\NadoTest_boom.wav";
+	g_boomPath = ModuleDir() + "\\TornadoRedemption_boom.wav";
 	if (!WriteWav(g_boomPath, pcm, rate)) { g_boomPath.clear(); return false; }
 	return true;
 }
@@ -482,7 +484,7 @@ static bool MakeWhoosh()
 		sm = tanh(sm * 1.5) * 0.85;
 		pcm[i] = (int16_t)(sm * 30000);
 	}
-	g_whooshPath = ModuleDir() + "\\NadoTest_whoosh.wav";
+	g_whooshPath = ModuleDir() + "\\TornadoRedemption_whoosh.wav";
 	if (!WriteWav(g_whooshPath, pcm, rate)) { g_whooshPath.clear(); return false; }
 	return true;
 }
@@ -492,7 +494,7 @@ void PlayWhoosh(bool soft)
 	if (g_mute) return;
 	LoadWinmm();
 	if (!g_mci || !MakeWhoosh()) return;
-	const std::string& path = soft && MakeSoftCopy(g_whooshPath, g_whooshSoftPath, "NadoTest_whoosh_soft.wav", 0.4f, 22050) ? g_whooshSoftPath : g_whooshPath;
+	const std::string& path = soft && MakeSoftCopy(g_whooshPath, g_whooshSoftPath, "TornadoRedemption_whoosh_soft.wav", 0.4f, 22050) ? g_whooshSoftPath : g_whooshPath;
 	g_mci("close nadowhoosh", nullptr, 0, nullptr);
 	std::string open = "open \"" + path + "\" type waveaudio alias nadowhoosh";
 	DWORD e = g_mci(open.c_str(), nullptr, 0, nullptr);
@@ -505,7 +507,7 @@ void PlayBoom(bool soft)
 	if (g_mute) return;
 	LoadWinmm();
 	if (!g_mci || !MakeBoom()) return;
-	const std::string& path = soft && MakeSoftCopy(g_boomPath, g_boomSoftPath, "NadoTest_boom_soft.wav", 0.2f, 22050) ? g_boomSoftPath : g_boomPath;
+	const std::string& path = soft && MakeSoftCopy(g_boomPath, g_boomSoftPath, "TornadoRedemption_boom_soft.wav", 0.2f, 22050) ? g_boomSoftPath : g_boomPath;
 	// MCI, so it can play over a voice line that PlaySound is playing
 	g_mci("close nadoboom", nullptr, 0, nullptr);
 	std::string open = "open \"" + path + "\" type waveaudio alias nadoboom";
@@ -517,7 +519,7 @@ void PlayBoom(bool soft)
 void PlayVoiceFile(const char* id)
 {
 	if (g_mute || !id) return;
-	std::string path = ModuleDir() + "\\NadoTest_intro\\" + id + ".wav";
+	std::string path = ModuleDir() + "\\TornadoRedemption_intro\\" + id + ".wav";
 	if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES) return;
 	LoadWinmm();
 	if (g_playSound && g_playSound(path.c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT))

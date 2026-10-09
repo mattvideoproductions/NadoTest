@@ -1,4 +1,4 @@
-// NadoTest - shared helpers: math, logging, timing, model/ptfx loading.
+// Tornado Redemption - shared helpers: math, logging, timing, model/ptfx loading.
 #pragma once
 
 #include <windows.h>
@@ -40,10 +40,10 @@ inline V3 HeadingDir(float headingDeg)
 // ---------- time ----------
 inline float NowSec() { return MISC::GET_GAME_TIMER() / 1000.0f; }
 
-// ---------- logging (NadoTest.log next to the .asi) ----------
+// ---------- logging (TornadoRedemption.log next to the .asi) ----------
 void LogInit(HMODULE module);
 void Log(const char* fmt, ...);
-void Finding(const char* fmt, ...);   // appends to NadoTest_findings.txt (things the user rated / bookmarked)
+void Finding(const char* fmt, ...);   // appends to TornadoRedemption_findings.txt (things the user rated / bookmarked)
 std::string ModuleDir();
 
 // ---------- on-screen text ----------

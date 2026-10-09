@@ -1,4 +1,4 @@
-// NadoTest v1.1 - the tornado gun. Part of script.cpp. The user: "can we make an optional mini tornado gun we can use :))".
+// Tornado Redemption v1.1 - the tornado gun. Part of script.cpp. The user: "can we make an optional mini tornado gun we can use :))".
 // With it on, every shot Arthur fires (any gun) spawns a mini twister where the bullet hit: a pocket-sized Toon Twister (v1.4:
 // about as tall as a person) that wanders about where it landed for 30 s, spinning up whatever's in its little reach, and dies down. Up to three at once (the oldest goes when a fourth lands); they never touch
 // the weather and don't count as "the" tornado for the HUD, the camera or the challenges.

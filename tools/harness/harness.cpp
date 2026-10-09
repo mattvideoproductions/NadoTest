@@ -1,4 +1,4 @@
-// NadoTest offline regression harness (v1.0.0).
+// Tornado Redemption offline regression harness (v1.0.0).
 // Based on Astra's v0.5 audit harness (ASTRA_AUDIT_EVIDENCE.zip): it compiles the real mod .cpp files against mocked
 // Script Hook natives and checks CONTROL FLOW only - no rendering, real physics, streaming or game lifecycle.
 // Astra's 9 scenarios are kept with their expectations flipped to "FIXED"; 10-12 cover v0.3.0, 13-20 cover v0.4.0,
@@ -17,13 +17,19 @@
 #include <cstdio>
 #include <stdexcept>
 #include <functional>
-#include "NadoTest/src/common.cpp"
-#include "NadoTest/src/ui.cpp"
-#include "NadoTest/src/roar.cpp"
-#include "NadoTest/src/input.cpp"
-#include "NadoTest/src/pad.cpp"
-#include "NadoTest/src/tornado.cpp"
-#include "NadoTest/src/script.cpp"
+#include <windows.h>
+// v1.7: the mod's GetTickCount is the real clock plus 50 ms for every WAIT the mock has stood through, so a blocking loop with a
+// real-time timeout (the intro's build: the places, the camp, the models) runs out after ~timeout/50 waits instead of in real time
+static ULONGLONG g_tickSkewMs = 0;
+static DWORD HarnessTick() { return (DWORD)(GetTickCount64() + g_tickSkewMs); }
+#define GetTickCount HarnessTick
+#include "TornadoRedemption/src/common.cpp"
+#include "TornadoRedemption/src/ui.cpp"
+#include "TornadoRedemption/src/roar.cpp"
+#include "TornadoRedemption/src/input.cpp"
+#include "TornadoRedemption/src/pad.cpp"
+#include "TornadoRedemption/src/tornado.cpp"
+#include "TornadoRedemption/src/script.cpp"
 #include "hashes.h"
 
 struct MockObj { V3 p, v; int type = 3; bool frozen = false; Hash model = 0; };
@@ -61,7 +67,19 @@ static int shapeHandles = 0;
 static std::map<int, int> shapeHits;                      // shape index -> rays that hit it first
 static std::map<int, int> seatOf, attachedTo;              // ped -> vehicle it sits in; entity -> what it's attached to
 // v1.6.1: something attached is where what it's attached to is (offsets ignored; Arthur keeps his own mock position)
-static int Root(int e) { for (int hop = 0; hop < 4 && e != 1 && attachedTo.count(e); hop++) e = attachedTo[e]; return e; }
+// v1.7: ...and a rider is where its horse is (SET_PED_ONTO_MOUNT)
+static std::map<int, int> mountOf;                         // rider -> the horse it sits on
+static int Root(int e)
+{
+	if (e == 1) { auto it = mountOf.find(1); return it != mountOf.end() && objects.count(it->second) ? it->second : 1; }   // (v1.7.1: Arthur rides his horse)
+	for (int hop = 0; hop < 4 && e != 1; hop++)
+	{
+		if (attachedTo.count(e)) e = attachedTo[e];
+		else if (mountOf.count(e)) e = mountOf[e];
+		else break;
+	}
+	return e;
+}
 static std::set<int> blips;
 static int nextBlip = 500, nextVeg = 7000;
 static std::set<int> vegAlive;
@@ -78,7 +96,7 @@ static bool screenFadedOut = false, mockMission = false, mockShooting = false;
 static bool mockRagdoll = false;                           // v1.5: IS_PED_RAGDOLL for Arthur
 static float mockLookLR = 0, mockLookUD = 0, mockMoveUD = 0; // v1.5: GET_DISABLED_CONTROL_NORMAL
 static int lastRagdollMin = -1;
-struct NearSpeech { std::string ctx, voice; float camDist; float t; };
+struct NearSpeech { std::string ctx, voice; float camDist; float t; float clk = -1; };   // v1.7: clk = the intro's clock then (-1 outside stage 4)
 static std::vector<NearSpeech> nearSpeech;                 // v1.5: PLAY_AMBIENT_SPEECH_FROM_POSITION_NATIVE
 static V3 mockImpact, camPos, camRot;
 static std::set<Hash> unloadedModels;                      // HAS_MODEL_LOADED says no for these
@@ -86,7 +104,7 @@ static std::vector<std::string> shown;                     // every string BG_DI
 static std::map<int, std::string> fxNames;                 // world-space looped effects: name...
 static std::map<int, V3> fxPos;                            // ...and where they were last put
 // v1.2: voices - what was said, by whom and when; which peds are human; lines a voice lacks
-struct Said { int ped; std::string ctx; float t; };
+struct Said { int ped; std::string ctx; float t; float clk = -1; };
 static std::vector<Said> said;
 static std::set<int> humans;
 static std::set<std::string> missingCtx;
@@ -94,7 +112,7 @@ static std::map<int, float> speechUntil;
 static std::map<int, Hash> outfitOf;                       // v1.2: EQUIP_META_PED_OUTFIT
 static std::map<std::string, int> audioFlags;              // v1.2: SET_AUDIO_FLAG
 // v1.3: scripted conversations (the intro's story lines). convWorks: does the game play them (else the intro falls back)
-struct StoryCall { std::string root; int idx; float t; };
+struct StoryCall { std::string root; int idx; float t; float clk = -1; };
 static std::vector<StoryCall> storyCalls;
 static std::map<std::string, float> convUntil;
 static std::set<std::string> convCreated, textReq, textDel;
@@ -121,6 +139,19 @@ static std::set<std::string> musicNotReady;                // music events PREPA
 static int feedId = 0;                                     // what the game's right-hand feed toast returns
 static int mockHorse = 0;                                  // GET_SADDLE_HORSE_FOR_PLAYER
 static std::map<int, std::string> animOf;                  // the last anim clip TASK_PLAY_ANIM gave each ped
+// ---------- v1.7 mock state (the new intro) ----------
+static std::set<Hash> iplActive;                           // the map pieces (IPLs) switched on
+static std::vector<Hash> iplRequested, iplRemoved;         // every REQUEST_IPL_HASH / REMOVE_IPL_HASH, in order
+static bool iplWorks = true;                               // a REQUEST_IPL_HASH switches the piece on (else the camp never comes up)
+static std::vector<V3> noCollisionAt;                      // HAS_COLLISION_LOADED_AT_COORD says no within 40 m of these
+static std::map<int, int> blipFor;                         // BLIP_ADD_FOR_ENTITY: blip -> entity
+static int lastPauseClock = -1;                            // PAUSE_CLOCK
+static std::vector<V3> playerPuts;                         // every SET_ENTITY_COORDS on Arthur
+static std::map<int, int> visibleOf;                       // SET_ENTITY_VISIBLE, last value
+static float convLen = 2.0f;                               // how long a started scripted conversation plays (s)
+// v1.7.1: the take a started conversation drew (GET_CURRENT_SCRIPTED_CONVERSATION_LINE): root -> the takes drawn by its 1st, 2nd... start
+static std::map<std::string, std::vector<int>> takesFor;
+static std::map<std::string, int> convStarts, convHistoryClearsFor;
 
 static bool InsideShape(const Shape& s, const V3& p)
 {
@@ -174,6 +205,15 @@ void nativeInit(UINT64 h) { hashNow = h; args.clear(); }
 void nativePush64(UINT64 v) { args.push_back(v); }
 static MockObj* Obj(int e) { auto it = objects.find(e); return it == objects.end() ? nullptr : &it->second; }   // never creates one
 static float mockCamRelHeading = -999.0f;   // v1.6.1: the gameplay camera's heading, relative to Arthur, as last set
+// v1.7.1: off the horse, a rider is left where the horse is
+static void Dismount(int e)
+{
+	auto it = mountOf.find(e);
+	if (it == mountOf.end()) return;
+	if (MockObj* h = Obj(it->second)) { if (e == 1) playerPos = h->p; else if (MockObj* o = Obj(e)) o->p = h->p; }
+	mountOf.erase(it);
+}
+static float IntroClk() { return g_in.stage == 4 ? (float)g_in.clock : -1.0f; }   // v1.7: when (on the intro's clock) a line started
 PUINT64 nativeCall()
 {
 	std::memset(result, 0, sizeof(result)); calls[hashNow]++;
@@ -234,7 +274,8 @@ PUINT64 nativeCall()
 	case N_SET_PED_INTO_VEHICLE: if (Obj(arg<int>(1))) seatOf[arg<int>(0)] = arg<int>(1); return result;
 	case N_IS_PED_IN_VEHICLE: { auto it = seatOf.find(arg<int>(0)); return ret((int)(it != seatOf.end() && it->second == arg<int>(1) && Obj(it->second))); }
 	case N_IS_PED_IN_ANY_VEHICLE: return ret((int)seatOf.count(arg<int>(0)));
-	case N_TASK_LEAVE_VEHICLE: case N_CLEAR_PED_TASKS_IMMEDIATELY: seatOf.erase(arg<int>(0)); return result;
+	case N_TASK_LEAVE_VEHICLE: seatOf.erase(arg<int>(0)); return result;
+	case N_CLEAR_PED_TASKS_IMMEDIATELY: seatOf.erase(arg<int>(0)); Dismount(arg<int>(0)); return result;   // (v1.7: off the horse too)
 	case N_ATTACH_ENTITY_TO_ENTITY: attachedTo[arg<int>(0)] = arg<int>(1); return result;
 	case N_IS_ENTITY_ATTACHED_TO_ENTITY: { auto it = attachedTo.find(arg<int>(0)); return ret((int)(it != attachedTo.end() && it->second == arg<int>(1))); }
 	case N_IS_ENTITY_ATTACHED: return ret((int)attachedTo.count(arg<int>(0)));
@@ -278,7 +319,7 @@ PUINT64 nativeCall()
 	{
 		const char* const* sp = reinterpret_cast<const char* const*>(arg<int*>(3));
 		V3 at(arg<float>(0), arg<float>(1), arg<float>(2));
-		nearSpeech.push_back({ sp[0] ? sp[0] : "", sp[1] ? sp[1] : "", (at - (lastRenderCams == 1 ? lastCamCoord : camPos)).len(), mockTime });
+		nearSpeech.push_back({ sp[0] ? sp[0] : "", sp[1] ? sp[1] : "", (at - (lastRenderCams == 1 ? lastCamCoord : camPos)).len(), mockTime, IntroClk() });
 		return ret(1);
 	}
 	case N_SET_PED_TO_RAGDOLL: if (arg<int>(0) == 1) { lastRagdollMin = arg<int>(1); mockRagdoll = arg<int>(1) > 1; } return result;
@@ -293,7 +334,7 @@ PUINT64 nativeCall()
 	case N_SET_ENTITY_COORDS:
 	{
 		V3 p(arg<float>(1), arg<float>(2), arg<float>(3));
-		if (arg<int>(0) == 1) playerPos = p; else if (MockObj* o = Obj(arg<int>(0))) o->p = p;
+		if (arg<int>(0) == 1) { playerPos = p; playerPuts.push_back(p); } else if (MockObj* o = Obj(arg<int>(0))) o->p = p;
 		return result;
 	}
 	case N_DOES_ENTITY_EXIST: return ret((int)(arg<int>(0) == 1 || objects.count(arg<int>(0))));
@@ -343,7 +384,7 @@ PUINT64 nativeCall()
 	case N_PLAY_PED_AMBIENT_SPEECH_NATIVE:
 	{
 		const char* c = *reinterpret_cast<const char* const*>(arg<int*>(1));
-		said.push_back({ arg<int>(0), c ? c : "", mockTime }); speechUntil[arg<int>(0)] = mockTime + 1.2f; return ret(1);
+		said.push_back({ arg<int>(0), c ? c : "", mockTime, IntroClk() }); speechUntil[arg<int>(0)] = mockTime + 1.2f; return ret(1);
 	}
 	case N_IS_AMBIENT_SPEECH_PLAYING: case N_IS_ANY_SPEECH_PLAYING: { auto it = speechUntil.find(arg<int>(0)); return ret((int)(it != speechUntil.end() && mockTime < it->second)); }
 	case N_DOES_CONTEXT_EXIST_FOR_THIS_PED: { const char* c = arg<const char*>(1); return ret((int)(c && !missingCtx.count(c))); }
@@ -355,21 +396,56 @@ PUINT64 nativeCall()
 	case N_CREATE_NEW_SCRIPTED_CONVERSATION: convCreated.insert(arg<const char*>(0)); return ret(1);
 	case N_IS_SCRIPTED_CONVERSATION_CREATED: return ret((int)convCreated.count(arg<const char*>(0)));
 	case N_ADD_PED_TO_CONVERSATION: convNames[arg<const char*>(0)].insert(arg<const char*>(2)); return result;
-	case N_START_SCRIPT_CONVERSATION: if (convWorks) convUntil[arg<const char*>(0)] = mockTime + 2.0f; return result;
-	case N_PLAY_SINGLE_LINE_OF_CONVERSATION: storyCalls.push_back({ arg<const char*>(0), arg<int>(1), mockTime }); return result;
+	case N_START_SCRIPT_CONVERSATION: convStarts[arg<const char*>(0)]++; if (convWorks) convUntil[arg<const char*>(0)] = mockTime + convLen; return result;
+	case N_PLAY_SINGLE_LINE_OF_CONVERSATION: storyCalls.push_back({ arg<const char*>(0), arg<int>(1), mockTime, IntroClk() }); return result;
 	case N_IS_SCRIPTED_CONVERSATION_PLAYING: { auto it = convUntil.find(arg<const char*>(0)); return ret((int)(it != convUntil.end() && mockTime < it->second)); }
 	case N_STOP_SCRIPTED_CONVERSATION: convUntil.erase(arg<const char*>(0)); convStops++; return ret(1);
 	case N_CLEAR_CONVERSATION_HISTORY: convHistoryClears++; return result;
 	case N_TEXT_BLOCK_REQUEST: textReq.insert(arg<const char*>(0)); return result;
 	case N_TEXT_BLOCK_IS_LOADED: return ret((int)textReq.count(arg<const char*>(0)));
 	case N_TEXT_BLOCK_DELETE: textDel.insert(arg<const char*>(0)); textReq.erase(arg<const char*>(0)); return result;
+	// v1.7: the new intro - the camp's map pieces, the places' ground, the horses, the balloon's blip, the clock
+	case N_REQUEST_IPL_HASH: iplRequested.push_back(arg<Hash>(0)); if (iplWorks) iplActive.insert(arg<Hash>(0)); return result;
+	case N_REMOVE_IPL_HASH: iplRemoved.push_back(arg<Hash>(0)); iplActive.erase(arg<Hash>(0)); return result;
+	case N_IS_IPL_ACTIVE_HASH: return ret((int)iplActive.count(arg<Hash>(0)));
+	case N_HAS_COLLISION_LOADED_AT_COORD:
+	{
+		V3 p(arg<float>(0), arg<float>(1), arg<float>(2));
+		for (auto& q : noCollisionAt) if ((p - q).len2d() < 40.0f) return ret(0);
+		return ret(1);
+	}
+	case N_LOAD_SCENE_START_SPHERE: return ret(1);
+	case N_SET_PED_ONTO_MOUNT: if (Obj(arg<int>(1))) mountOf[arg<int>(0)] = arg<int>(1); return result;
+	case N_REMOVE_PED_FROM_MOUNT: Dismount(arg<int>(0)); return result;
+	case N_IS_PED_ON_MOUNT: { auto it = mountOf.find(arg<int>(0)); return ret((int)(it != mountOf.end() && Obj(it->second))); }
+	case N_GET_MOUNT: { auto it = mountOf.find(arg<int>(0)); return ret(it != mountOf.end() && Obj(it->second) ? it->second : 0); }
+	case N_BLIP_ADD_FOR_ENTITY: { int id = nextBlip++; blips.insert(id); blipFor[id] = arg<int>(1); return ret(id); }
+	case N_PAUSE_CLOCK: lastPauseClock = arg<int>(0); return result;
+	case N_SET_ENTITY_VISIBLE: visibleOf[arg<int>(0)] = arg<int>(1); return result;
+	// v1.7.1: the dips (the ground round Arthur), the random takes
+	case N_HAS_COLLISION_LOADED_AROUND_ENTITY:
+	{
+		int e = Root(arg<int>(0)); MockObj* o = Obj(e);
+		V3 p = e == 1 ? playerPos : o ? o->p : V3();
+		for (auto& q : noCollisionAt) if ((p - q).len2d() < 40.0f) return ret(0);
+		return ret(1);
+	}
+	case N_GET_CURRENT_SCRIPTED_CONVERSATION_LINE:
+	{
+		std::string r = arg<const char*>(0);
+		auto it = takesFor.find(r);
+		int n = convStarts[r];
+		if (it == takesFor.end() || it->second.empty() || n <= 0 || !convUntil.count(r)) return ret(-1);
+		return ret(it->second[std::min(n, (int)it->second.size()) - 1]);
+	}
+	case N_CLEAR_CONVERSATION_HISTORY_FOR_SCRIPTED_CONVERSATION: convHistoryClearsFor[arg<const char*>(0)]++; return result;
 	}
 	return result;
 }
 void scriptWait(DWORD)
 {
 	if (!countWaits) throw std::runtime_error("unexpected streaming wait in mock");
-	waits++; mockTime += 0.02f;   // (audit 2: a scenario that measures blocking waits - each one is a frame the script stood still)
+	waits++; mockTime += 0.02f; g_tickSkewMs += 50;   // (audit 2: a scenario that measures blocking waits - each one is a frame the script stood still)
 }
 int worldGetAllPeds(int* a, int n)
 {
@@ -423,6 +499,10 @@ static void reset()
 	tcName.clear(); tcStrength = 0; tcSets.clear(); tcClears = 0; musicReady = false; musicEvents.clear(); countWaits = false; waits = 0;
 	slowPtfx.clear(); ptfxAskedAt.clear(); ragdollOk.clear(); invincible.clear(); blockEvents.clear(); pedFlags.clear(); dictsRemoved.clear();
 	modelsReleased.clear(); deletedWithPedInside = 0; musicNotReady.clear(); feedId = 0; mockHorse = 0; animOf.clear();
+	// v1.7
+	iplActive.clear(); iplRequested.clear(); iplRemoved.clear(); iplWorks = true; noCollisionAt.clear(); mountOf.clear(); blipFor.clear();
+	lastPauseClock = -1; playerPuts.clear(); visibleOf.clear(); convLen = 2.0f;
+	takesFor.clear(); convStarts.clear(); convHistoryClearsFor.clear(); g_iplPending.clear(); g_abandonedPending = false; g_iplCheckAt = 0;   // v1.7.1
 }
 // Crude physics for tick(): unfrozen objects fall under gravity, move with their velocity and stop at the ground (z = 0).
 static void integrate(float dt)
@@ -501,12 +581,37 @@ static void WriteFileStr(const std::string& path, const std::string& s)
 	FILE* f = nullptr;
 	if (fopen_s(&f, path.c_str(), "wb") == 0 && f) { fwrite(s.data(), 1, s.size(), f); fclose(f); }
 }
-// NadoTest_best.txt: the scenarios use a temporary copy and put the real one back
+// TornadoRedemption_best.txt: the scenarios use a temporary copy and put the real one back
 static std::string g_bestBackup;
 static bool g_bestExisted = false;
 static void BackupBest() { g_bestExisted = GetFileAttributesA(BestPath().c_str()) != INVALID_FILE_ATTRIBUTES; g_bestBackup = g_bestExisted ? ReadFileStr(BestPath()) : ""; }
 static void RestoreBest() { if (g_bestExisted) WriteFileStr(BestPath(), g_bestBackup); else remove(BestPath().c_str()); }
-static int PosedCount() { int n = 0; for (int i = 0; i < kCastCount; i++) if (kCast[i].ride == RIDE_POSED) n++; return n; }
+
+// ---------- v1.7: the new intro ("Storm Chasers") ----------
+// TornadoRedemption_intro.txt (the places, found once): the scenarios that need it gone or present put the real one back after
+static std::string g_spotsBackup;
+static bool g_spotsExisted = false;
+static void BackupSpots() { g_spotsExisted = GetFileAttributesA(IntroSpotsPath().c_str()) != INVALID_FILE_ATTRIBUTES; g_spotsBackup = g_spotsExisted ? ReadFileStr(IntroSpotsPath()) : ""; }
+static void RestoreSpots() { if (g_spotsExisted) WriteFileStr(IntroSpotsPath(), g_spotsBackup); else remove(IntroSpotsPath().c_str()); }
+// frames from k until done() (or kMax); returns the frame after the last one run
+static int RunUntil(int k, int kMax, const std::function<bool()>& done) { for (; k <= kMax && !done(); k++) tick2(T(k)); return k; }
+static int ToClock(int k, double clock) { return RunUntil(k, k + 1500, [clock]() { return g_in.stage == 4 && g_in.clock >= clock; }); }
+static int ToStage(int k, int stage) { return RunUntil(k, k + 1500, [stage]() { return g_in.stage == stage; }); }
+// one of the intro's own lines (a fallback context, a line's audio name, the line after the handoff) - not the cast's everyday voice
+static bool IntroLineCtx(const std::string& c)
+{
+	for (auto& l : kIntroLines)
+	{
+		for (const char* x : l.ctx) if (x && c == x) return true;
+		if (l.audio && c == l.audio) return true;
+	}
+	return kAfterLine.ctx && c == kAfterLine.ctx;
+}
+// the mock doesn't carry Arthur with the balloon: done here once he's in it
+static void RideBalloon() { if (g_bal.on && !g_bal.waiting && (g_bal.seated || g_bal.attached)) playerPos = g_bal.pos + V3(0, 0, 1.0f); }
+// Arthur walks up to the waiting balloon (the stage 5 check boards it on the next frame); returns the next frame
+static int WalkToBalloon(int k) { if (g_bal.on) playerPos = g_bal.pos + V3(1.5f, 0.5f, 0); tick2(T(k)); return k + 1; }
+static int CastAlive() { int n = 0; for (int i = 0; i < kCastCount; i++) if (g_in.cast[i].ped && Obj(g_in.cast[i].ped)) n++; return n; }
 
 int main()
 {
@@ -536,7 +641,7 @@ int main()
 		g_set.render = 1; AutoSelfTest(); runSelfTest();
 		sprintf_s(detail, "self-test %d pass / %d fail / %d skip; loop-start calls %d; render restored to %d", g_st.pass, g_st.fail, g_st.skip, calls[N_START_PARTICLE_FX_LOOPED_ON_ENTITY], g_set.render);
 		check("self-test exercises real looped effects", calls[N_START_PARTICLE_FX_LOOPED_ON_ENTITY] > 0 && g_set.render == 1, detail);
-		printf("              (clean mock run: %s - %d passed)\n", g_st.fail == 0 ? "0 failures" : "has failures - see NadoTest_findings.txt", g_st.pass);
+		printf("              (clean mock run: %s - %d passed)\n", g_st.fail == 0 ? "0 failures" : "has failures - see TornadoRedemption_findings.txt", g_st.pass);
 		int cleanFails = g_st.fail, cleanPass = g_st.pass;
 		// 3. a surviving object is reported, not hidden
 		reset();
@@ -1124,10 +1229,10 @@ int main()
 			check("extra debris rides the flight system", FlightsActive() >= 1, detail);
 			n.Destroy();
 		}
-		// 54. (v1.0) the [Defaults] section of NadoTest.ini sets the starting scene
+		// 54. (v1.0) the [Defaults] section of TornadoRedemption.ini sets the starting scene
 		reset();
 		{
-			std::string ini = ModuleDir() + "\\NadoTest.ini";
+			std::string ini = ModuleDir() + "\\TornadoRedemption.ini";
 			FILE* f = nullptr;
 			fopen_s(&f, ini.c_str(), "w");
 			if (f)
@@ -1360,126 +1465,149 @@ int main()
 			check("flattened grass: spaced spheres, 80 kept, all removed on clear", added > 80 && minGap >= step - 0.01f && maxKept <= 80 && kept == 80 &&
 				removedRun == added - 80 && oldestFirst && rem == add && (int)vegRemoved.size() == added && vegAlive.empty() && VegTrailCount() == 0 && lastVegType == 2, det);
 		}
-		// 59. (v1.1) the intro, played through on the mock clock
+		// 59. (v1.7) the intro "Storm Chasers", played through on the mock clock: fade, the build (15 cast, 4 horses), control off and time
+		// scale 1 all through the scene; the four mounted at the ride out and on foot on their marks at the ridge; the funnel at kIntroSpawn
+		// (2.5 s growth, scripted); the balloon waiting with Cain in it before the handoff at ~40.4 s; then control back, the user's settings
+		// back (Arthur shielded), a blip on the balloon, the objective, the game's camera looking at the balloon
 		reset(); srand(59);
 		{
 			g_set.arthur = 3; g_set.movement = 1; g_set.speed = 2; g_set.touchdownCam = true; g_set.rideCam = false; g_set.playerGod = false;
+			UI::Objective("", 0.1f);
 			mockTime = 1.0f;
 			IntroStart();
 			bool fading = g_in.stage == 1 && screenFadedOut;
-			float t4 = -1, clkTornado = -1, clkBoard = -1, clkHandoff = -1, tHandoff = -1, endClock = -1, tReleased = -1, grow = 0;
-			bool scripted = false, faded4 = false, seated = false, shieldAfter = false, ctlOff = false;
-			int castOk = 0, castPeds = 0, propsOk = 0, ctl = -1, cams = -1, arthur = -1, move = -1, speed = -1;
-			float ts = 0, tsEnd = 0;
-			int ctlEnd = -1;
-			bool tdc = false, ride = true, god = true;
-			std::map<int, V3> start, at31;
-			int posedLifted = 0, posedMoving = 0, posedUp = 0;
-			for (int k = 11; k <= 2100; k++)
+			bool ctlOff = false, ctlLeak = false, tsBad = false, faded4 = false, onMark = false;
+			float t4 = -1, clkTornado = -1, grow = 0, clkHandoff = -1, tHandoff = -1, clkBalloon = -1;
+			bool scripted = false, rodeOut = false, atRidge = false, dogIn = false, waiting = false;
+			int castOk = 0, castPeds = 0, horsesOk = 0, mounted = 0, onFoot = 0;
+			int ctl = -1, cams = -1, arthur = -1, move = -1, speed = -1;
+			float ts = 0, along = -2;
+			bool blip = false, objective = false, tdc = false, ride = true, god = true, shield = false;
+			for (int k = 11; k <= 1200; k++)
 			{
-				float t = T(k);
-				tick2(t);
-				if (t4 < 0 && g_in.stage == 3 && lastPlayerControl == 0) ctlOff = true;
+				tick2(T(k));
+				if (g_in.stage == 3 && lastPlayerControl == 0) ctlOff = true;
+				if (g_in.stage == 4) { if (lastPlayerControl != 0) ctlLeak = true; if (lastTimeScale != 1.0f) tsBad = true; }
 				if (t4 < 0 && g_in.stage == 4)
 				{
-					t4 = t; faded4 = !screenFadedOut;
-					for (int i = 0; i < kCastCount; i++)
-						if (g_in.cast[i].ok) { castOk++; if (MockObj* o = Obj(g_in.cast[i].ped)) { if (o->type == 1) castPeds++; start[i] = o->p; } }
-					for (Entity e : g_in.props) if (Obj(e)) propsOk++;
+					t4 = T(k); faded4 = !screenFadedOut;
+					for (int i = 0; i < kCastCount; i++) if (g_in.cast[i].ok) { castOk++; if (MockObj* o = Obj(g_in.cast[i].ped)) if (o->type == 1) castPeds++; }
+					for (Ped h : g_in.horses) if (MockObj* o = Obj(h)) if (o->type == 1) horsesOk++;
+					onMark = (playerPos - CampMark(RS_ARTHUR)).len2d() < 0.5f;
 				}
-				if (g_in.stage == 4 && clkTornado < 0 && g_in.tp.get())
+				if (g_in.stage == 4 && g_in.phase == 1 && !rodeOut)
 				{
-					clkTornado = (float)g_in.clock; grow = g_in.tp.get()->growSeconds; scripted = g_in.tp.get()->scripted;
+					rodeOut = true;
+					for (int s = 0; s < kRiders; s++) { Ped p = Rider(s); if (p && mountOf.count(p) && mountOf[p] == g_in.horses[s] && PED::IS_PED_ON_MOUNT(p)) mounted++; }
 				}
-				if (g_in.stage == 4 && g_in.clock >= 86.0 && at31.empty())
-					for (int i = 0; i < kCastCount; i++) if (kCast[i].ride == RIDE_POSED && Obj(g_in.cast[i].ped)) at31[i] = Obj(Root(g_in.cast[i].ped))->p;   // (v1.6.1: on a carrier)
-				if (g_in.stage == 4 && g_in.clock >= 87.0 && !at31.empty() && posedLifted == 0)
-					for (int i = 0; i < kCastCount; i++)
+				if (g_in.stage == 4 && g_in.phase == 4 && !atRidge)
+				{
+					atRidge = true;
+					for (int s = 0; s < kRiders; s++)
 					{
-						if (kCast[i].ride != RIDE_POSED || !g_in.cast[i].lifted || !Obj(g_in.cast[i].ped)) continue;
-						posedLifted++;
-						V3 p = Obj(Root(g_in.cast[i].ped))->p;
-						if ((p - at31[i]).len() > 0.5f) posedMoving++;
-						if (p.z > 2.0f && ((p - start[i]).len2d() > 2.0f || p.z > 5.0f)) posedUp++;   // (its orbit can pass right over where it stood)
+						Ped p = Rider(s);
+						if (p && !PED::IS_PED_ON_MOUNT(p) && (V3(ENTITY::GET_ENTITY_COORDS(p, FALSE, FALSE)) - RidgeMark(s)).len2d() < 0.5f) onFoot++;
 					}
-				if (g_in.stage == 4 && clkBoard < 0 && g_bal.on && !g_bal.waiting)
-				{
-					clkBoard = (float)g_in.clock; seated = g_bal.seated && seatOf.count(1) && seatOf[1] == g_bal.veh;
 				}
-				if (clkHandoff < 0 && g_in.stage == 5)
+				if (g_in.stage == 4 && clkTornado < 0 && ITp()) { clkTornado = (float)g_in.clock; grow = ITp()->growSeconds; scripted = ITp()->scripted; }
+				if (g_in.stage == 4 && clkBalloon < 0 && g_bal.on && g_bal.waiting) clkBalloon = (float)g_in.clock;
+				if (g_in.stage == 5)
 				{
-					clkHandoff = (float)g_in.clock; tHandoff = t;
+					clkHandoff = (float)g_in.clock; tHandoff = T(k);
 					ctl = lastPlayerControl; cams = lastRenderCams; ts = lastTimeScale;
 					arthur = g_set.arthur; move = g_set.movement; speed = g_set.speed; tdc = g_set.touchdownCam; ride = g_set.rideCam; god = g_set.playerGod;
+					shield = IntroShieldsPlayer();
+					Ped cain = CastPed(CA_CAIN);
+					waiting = g_bal.on && g_bal.waiting;
+					dogIn = cain && attachedTo.count(cain) && attachedTo[cain] == g_bal.body && Obj(cain) && !Obj(cain)->frozen;
+					blip = g_in.blip && blips.count(g_in.blip) && blipFor[g_in.blip] == g_bal.body;
+					objective = UI::g_objective.a.find("hot air balloon") != std::string::npos;
+					V3 look = HeadingDir(ENTITY::GET_ENTITY_HEADING(PLAYER::PLAYER_PED_ID()) + mockCamRelHeading), to = FlatDir(playerPos, g_bal.pos);
+					along = look.x * to.x + look.y * to.y;
+					break;
 				}
-				if (tHandoff > 0 && fabsf(t - tHandoff - 0.5f) < 0.01f) shieldAfter = g_shieldPlayer && BalloonActive();
-				if (tHandoff > 0 && tReleased < 0)
-				{
-					bool all = true;
-					for (int i = 0; i < kCastCount; i++) if (kCast[i].ride == RIDE_POSED && g_in.cast[i].ok && !g_in.cast[i].released) all = false;
-					if (all) tReleased = clkHandoff + (t - tHandoff);
-				}
-				if (tHandoff > 0 && g_in.stage == 0) { endClock = clkHandoff + (t - tHandoff); ctlEnd = lastPlayerControl; tsEnd = lastTimeScale; break; }
 			}
+			IntroAbort("harness");
 			float lightning = lightningP3.empty() ? 0 : lightningP3.front();
-			sprintf_s(det, "fade-out first %d, control taken %d, stage 4 at %.1f s faded in %d; cast %d/%d (peds %d), camp props %d/%d; tornado at %.2f s (grow %.1f s, scripted %d); "
-				"posed riders at 87 s (after Javier's pass by the basket): lifted %d/%d, moving %d, up off the camp %d; boarded at %.2f s (seated %d); handoff at %.2f s: control %d, script cams %d, time scale %.2f, "
-				"arthur %d move %d speed %d touchdown cam %d ride cam %d invincible %d, shield in the balloon %d; riders all released by %.1f s, stage 0 at %.1f s (intro clock; control %d, time scale %.2f) | "
-				"intro lightning p3 %.0f",
-				(int)fading, (int)ctlOff, t4, (int)faded4, castOk, kCastCount, castPeds, propsOk, kCampPropCount, clkTornado, grow, (int)scripted,
-				posedLifted, PosedCount(), posedMoving, posedUp, clkBoard, (int)seated, clkHandoff, ctl, cams, ts, arthur, move, speed, (int)tdc, (int)ride, (int)god,
-				(int)shieldAfter, tReleased, endClock, ctlEnd, tsEnd, lightning);
-			// (v1.2: Uncle's chair is one more prop, and the gang walks it off before the scene lets go - done by ~86 s)
-			// (v1.3: the new screenplay - the funnel drops at 15.6 s, Arthur lifts off at 19.4 s, the handoff is at 44 s; the cow is the
-			// only rider still flown by hand, the gang go up as ragdolls)
-			// (v1.4: a 5 s longer setup - the funnel drops at 20.6 s, Arthur lifts off at 24.4 s, the handoff is at 49 s)
-			check("intro: fade, cast and camp, tornado at 43.7 s, lift-off at 52 s, handoff at 102.5 s (+ any held cuts), done by ~150 s", fading && ctlOff && t4 > 0 && faded4 &&
-				castOk == kCastCount && kCastCount == 12 && castPeds == kCastCount && propsOk >= kCampPropCount && propsOk <= kCampPropCount + 1 && fabsf(clkTornado - 43.7f) <= 0.11f && grow == 2.5f && scripted &&
-				posedLifted == PosedCount() && posedMoving == posedLifted && posedUp == posedLifted && fabsf(clkBoard - 52.0f) <= 0.11f && seated &&
-				clkHandoff >= 102.4f && clkHandoff <= 102.4f + 8.1f && ctl == 1 && cams == 0 && ts == 1.0f && arthur == 3 && move == 1 && speed == 2 && tdc && !ride && !god && shieldAfter &&
-				tReleased > clkHandoff && endClock > 0 && endClock <= 155.0f && ctlEnd == 1 && tsEnd == 1.0f, det);
+			sprintf_s(det, "fade-out first %d, control taken %d, stage 4 at %.1f s faded in %d; cast %d/%d (peds %d), horses %d/%d, Arthur on his mark %d; control kept off %d, "
+				"time scale 1 %d; mounted at the ride out %d/%d, on foot on their marks at the ridge %d/%d; tornado at %.2f s (grow %.1f s, scripted %d); balloon waiting from "
+				"%.2f s; handoff at %.2f s (%.1f s of real time after the fade-in): control %d, script cams %d, time scale %.2f, arthur %d move %d speed %d touchdown cam %d "
+				"ride cam %d invincible %d, shielded %d; balloon still waiting %d with Cain in it %d, blip on it %d, objective %d, the camera looking at it %.2f | lightning p3 %.0f",
+				(int)fading, (int)ctlOff, t4, (int)faded4, castOk, kCastCount, castPeds, horsesOk, kRiders, (int)onMark, (int)!ctlLeak, (int)!tsBad, mounted, kRiders, onFoot,
+				kRiders, clkTornado, grow, (int)scripted, clkBalloon, clkHandoff, tHandoff - t4, ctl, cams, ts, arthur, move, speed, (int)tdc, (int)ride, (int)god, (int)shield,
+				(int)waiting, (int)dogIn, (int)blip, (int)objective, along, lightning);
+			check("intro: fade, build, the ride out mounted, on foot at the ridge, the funnel at kIntroSpawn, the balloon waiting, handoff at kIntroHandoff (+ held cuts, dips)",
+				fading && ctlOff && t4 > 0 && faded4 && castOk == kCastCount && castPeds == kCastCount && horsesOk == kRiders && onMark && !ctlLeak && !tsBad &&
+				mounted == kRiders && onFoot == kRiders && fabsf(clkTornado - kIntroSpawn) <= 0.11f && grow == 2.5f && scripted &&
+				clkBalloon >= kIntroBalloon - 0.01f && clkBalloon <= kIntroBalloon + 0.11f && fabsf(clkHandoff - kIntroHandoff) <= 0.11f &&
+				tHandoff - t4 >= kIntroHandoff - 0.2f && tHandoff - t4 <= kIntroHandoff + 6.0f + 2.0f + 2 * (0.9f + 3.0f) + 0.5f &&
+				ctl == 1 && cams == 0 && ts == 1.0f && arthur == 0 && move == 1 && speed == 2 && tdc && !ride && !god && shield &&
+				waiting && dogIn && blip && objective && along > 0.95f && lightning == -1.0f, det);
 		}
-		// 60. (v1.1) skipping the intro (IntroSkip at 10 s, as the back key does) lands at the handoff
+		// 60. (v1.7) skipping the intro at 10 s (IntroSkip, as the back key does): straight to the fall (kIntroShotAt[SH_FALL] + 0.2 s) with the four on foot at the ridge,
+		// the camp gone, the funnel out at the foot of the ridge and the balloon waiting; the handoff follows within a couple of seconds and
+		// no line of the scene plays after the skip
 		reset(); srand(60);
 		{
 			g_set.arthur = 1;
 			mockTime = 1.0f;
 			IntroStart();
-			int k = 11;
-			for (; k <= 400 && !(g_in.stage == 4 && g_in.clock >= 10.0); k++) tick2(T(k));
+			int k = ToClock(11, 10.0);
 			float clkBefore = (float)g_in.clock;
+			size_t said0 = said.size(), story0 = storyCalls.size(), near0 = nearSpeech.size();
 			IntroSkip();
 			float clkAfter = (float)g_in.clock;
-			bool tp = g_in.tp.get() != nullptr;
-			int lifted = 0, riders = 0;
-			for (int i = 0; i < kCastCount; i++) if (kCast[i].ride != RIDE_STAY) { riders++; if (g_in.cast[i].lifted) lifted++; }
+			int onFoot = 0;
+			for (int s = 0; s < kRiders; s++) { Ped p = Rider(s); if (p && !PED::IS_PED_ON_MOUNT(p)) onFoot++; }
+			bool tp = ITp() != nullptr, waiting = g_bal.on && g_bal.waiting, campGone = g_in.campGone && CastPed(CA_SUSAN) == 0 && CastPed(CA_PEARSON) == 0;
+			float funnelOut = tp ? (ITp()->base - g_in.O).len2d() : -1;
 			float tSkip = T(k - 1), tHand = -1;
-			for (; k <= 500; k++) { tick2(T(k)); if (g_in.stage == 5) { tHand = T(k); break; } }
-			bool seated = g_bal.on && g_bal.seated && seatOf.count(1) && seatOf[1] == g_bal.veh;
-			sprintf_s(det, "skipped at %.1f s -> clock %.1f, tornado %d, riders lifted %d/%d; handoff %.1f s later (clock %.2f): seated %d, control %d, time scale %.2f, script cams %d, arthur %d",
-				clkBefore, clkAfter, (int)tp, lifted, riders, tHand > 0 ? tHand - tSkip : -1.0f, (float)g_in.clock, (int)seated, lastPlayerControl, lastTimeScale, lastRenderCams, g_set.arthur);
-			check("intro skip lands at the handoff", clkBefore >= 10.0f && clkBefore < 10.2f && fabsf(clkAfter - 94.5f) < 0.01f && tp && lifted == riders && tHand > 0 && tHand - tSkip <= 8.2f &&
-				seated && lastPlayerControl == 1 && lastTimeScale == 1.0f && lastRenderCams == 0 && g_set.arthur == 1, det);
+			for (; k <= 600; k++) { tick2(T(k)); if (g_in.stage == 5) { tHand = T(k); break; } }
+			int lines = (int)(storyCalls.size() - story0) + (int)(nearSpeech.size() - near0);
+			for (size_t i = said0; i < said.size(); i++) if (IntroLineCtx(said[i].ctx)) lines++;
+			IntroAbort("harness");
+			sprintf_s(det, "skipped at %.1f s -> clock %.2f; on foot %d/%d, camp gone %d, tornado %d (%.0f m out from the ridge), balloon waiting %d; handoff %.1f s later; "
+				"lines after the skip %d", clkBefore, clkAfter, onFoot, kRiders, (int)campGone, (int)tp, funnelOut, (int)waiting, tHand > 0 ? tHand - tSkip : -1.0f, lines);
+			check("intro skip lands at the ridge, staged, and hands off", clkBefore >= 10.0f && clkBefore < 10.2f && fabsf(clkAfter - (kIntroShotAt[SH_FALL] + 0.2f)) < 0.01f &&
+				g_in.phase == 4 && onFoot == kRiders && campGone && tp && funnelOut > 20.0f && funnelOut < kIntroPushDist + 1.0f && waiting && tHand > 0 &&
+				tHand - tSkip <= kIntroHandoff - kIntroShotAt[SH_FALL] - 0.2f + 0.3f && lines == 0, det);
 		}
-		// 61. (v1.1) Arthur dies mid-intro (in the slow motion): control, cameras and time scale come back
-		reset(); srand(61);
+		// 61. (v1.7) Arthur dies mid-scene (in camp, and at the ridge): control, cameras and time scale come back, the intro stops, the settings
+		// are the user's again, the clock runs again; and the camp's map pieces (v1.7.1) stay up while he's near the camp and are put back the
+		// way they were once he's 350 m+ away
 		{
-			g_set.arthur = 2; g_set.touchdownCam = true;
-			mockTime = 1.0f;
-			IntroStart();
-			int k = 11;
-			for (; k <= 1300 && !(g_in.stage == 4 && g_in.clock >= 88.5); k++) tick2(T(k));   // (v1.5: the slow motion is 87.4-90.3 s)
-			float tsBefore = lastTimeScale;
-			int ctlBefore = lastPlayerControl;
-			mockDead = true;
-			tick2(T(k));
-			mockDead = false;
-			int stillPosed = 0;
-			for (int i = 0; i < kCastCount; i++) if (kCast[i].ride == RIDE_POSED && g_in.cast[i].lifted && !g_in.cast[i].released) stillPosed++;
-			sprintf_s(det, "at 32 s: time scale %.2f, control %d; after the death: stage %d, control %d, time scale %.2f, script cams %d, arthur %d, touchdown cam %d, riders still posed %d",
-				tsBefore, ctlBefore, g_in.stage, lastPlayerControl, lastTimeScale, lastRenderCams, g_set.arthur, (int)g_set.touchdownCam, stillPosed);
-			check("intro: death mid-scene restores control and time scale", tsBefore < 1.0f && ctlBefore == 0 && g_in.stage == 0 && lastPlayerControl == 1 &&
-				lastTimeScale == 1.0f && lastRenderCams == 0 && g_set.arthur == 2 && g_set.touchdownCam && stillPosed == 0, det);
+			bool ok[2] = {}; char part[2][300] = {};
+			for (int run = 0; run < 2; run++)
+			{
+				reset(); srand(61);
+				g_set.arthur = 2; g_set.touchdownCam = true;
+				iplActive.insert((Hash)kCampAbandonedIpl);   // (the abandoned camp is what's there in a later chapter)
+				mockTime = 1.0f;
+				IntroStart();
+				int k = ToClock(11, run ? 30.0 : 8.0);
+				int ctlBefore = lastPlayerControl, requested = (int)iplRequested.size();
+				mockDead = true;
+				tick2(T(k++));
+				mockDead = false;
+				int onNear = 0;
+				for (Hash h : iplRequested) if (h != (Hash)kCampAbandonedIpl && iplActive.count(h)) onNear++;
+				for (int j = 0; j < 3; j++) tick2(T(k++));
+				int onStill = 0;
+				for (Hash h : iplRequested) if (h != (Hash)kCampAbandonedIpl && iplActive.count(h)) onStill++;
+				playerPos = kCampCentre + V3(500.0f, 0, 0);   // he goes away
+				for (int j = 0; j < 15; j++) tick2(T(k++));
+				int stillOn = 0;
+				for (Hash h : iplRequested) if (h != (Hash)kCampAbandonedIpl && iplActive.count(h)) stillOn++;
+				bool abandonedBack = iplActive.count((Hash)kCampAbandonedIpl) != 0;
+				ok[run] = ctlBefore == 0 && g_in.stage == 0 && lastPlayerControl == 1 && lastTimeScale == 1.0f && lastRenderCams == 0 && g_set.arthur == 2 &&
+					g_set.touchdownCam && requested > 1 && (run == 1 || (onNear > 0 && onStill == onNear)) && stillOn == 0 && abandonedBack && lastPauseClock == 0 &&
+					!screenFadedOut;
+				sprintf_s(part[run], "died at %.1f s: control before %d; after: stage %d, control %d, time scale %.2f, script cams %d, arthur %d, touchdown cam %d, clock paused %d; "
+					"camp pieces asked for %d, on just after %d (0.3 s on %d), once he's away %d, the abandoned camp back %d", (float)g_in.clock, ctlBefore, g_in.stage,
+					lastPlayerControl, lastTimeScale, lastRenderCams, g_set.arthur, (int)g_set.touchdownCam, lastPauseClock, requested, onNear, onStill, stillOn, (int)abandonedBack);
+			}
+			sprintf_s(det, "in camp: %s | at the ridge: %s", part[0], part[1]);
+			check("intro: death mid-scene gives everything back (camp pieces too)", ok[0] && ok[1], det);
 		}
 		// 62. (v1.1) the jet balloon: seated; when the game ignores the balloon natives it falls back step by step; bail; remove
 		reset(); srand(62);
@@ -1806,6 +1934,7 @@ int main()
 			tick2(T(k++));
 			std::vector<int> leftovers;
 			for (int i = 0; i < kCastCount; i++) if (g_in.cast[i].ped) leftovers.push_back(g_in.cast[i].ped);
+			for (Ped h : g_in.horses) if (h) leftovers.push_back(h);   // (v1.7: the four horses; the camp's people went when the scene left the camp)
 			for (Entity e : g_in.props) leftovers.push_back(e);
 			int veh = g_bal.veh;
 			int had = 0;
@@ -1833,7 +1962,7 @@ int main()
 				items, missing.empty() ? " none" : missing.c_str(), (int)seen.size(), (int)P_COUNT, bigName.c_str(), biggest, tornadoes, (int)stage5 * 5, had, (int)balloon, grass, hides,
 				idx, (int)g_tornadoes.size(), left, (int)(Obj(veh) != nullptr), g_in.stage, VegTrailCount(), (int)vegAlive.size(), TreeHidesUsed(), hidesRemoved, made, standsLeft);
 			check("menu: help everywhere, all pages reachable, <= 14 items; Despawn everything clears it all", missing.empty() && (int)seen.size() == P_COUNT && biggest <= 14 &&
-				idx >= 0 && tornadoes >= 1 && stage5 && had == (int)leftovers.size() && had >= kCastCount && balloon && grass > 0 && hides > 0 && cleared, det);
+				idx >= 0 && tornadoes >= 1 && stage5 && had == (int)leftovers.size() && had >= 3 + 1 + kRiders && balloon && grass > 0 && hides > 0 && cleared, det);
 		}
 		// 70. (v1.1) the roar: louder when closer, ~0 far away or with none, panned to the side it's on, minis quieter
 		reset(); srand(70);
@@ -1902,8 +2031,8 @@ int main()
 				titleSimple && plain, det);
 		}
 
-		// 72. (v1.1) after the intro (it locks a THUNDER sky for the scene) the weather is handed back once its storm is over -
-		// also with Weather override "Off (keep yours)", where no storm lock ever takes the intro's lock over
+		// 72. (v1.1, v1.7) after the intro (it locks its own skies for the scene, until Arthur's in the balloon) the weather is handed back
+		// once its storm is over - also with Weather override "Off (keep yours)", where no storm lock ever takes the intro's lock over
 		{
 			bool locked[2] = {};
 			int clears[2] = {}, stageEnd[2] = {};
@@ -1917,7 +2046,8 @@ int main()
 				for (; k <= 400 && g_in.stage != 4; k++) tick2(T(k));
 				IntroSkip();
 				for (; k <= 600 && g_in.stage != 5; k++) tick2(T(k));
-				for (int j = 0; j < 520 && g_in.stage != 0; j++) tick2(T(k++));   // the gang is thrown out and walks it off, the scene ends
+				k = WalkToBalloon(k);                                               // (v1.7) in the balloon: the scene ends 15 s later
+				for (int j = 0; j < 520 && g_in.stage != 0; j++) { RideBalloon(); tick2(T(k++)); }
 				DespawnAll();
 				for (int j = 0; j < 20; j++) tick2(T(k++));                         // the storm is over
 				locked[mode] = g_lockedHash != 0;
@@ -1926,7 +2056,7 @@ int main()
 			}
 			sprintf_s(det, "Storm clouds: still locked %d (clear-override calls %d, intro stage %d) | Off (keep yours): still locked %d to THUNDER (clear-override calls %d, intro stage %d)",
 				(int)locked[1], clears[1], stageEnd[1], (int)locked[0], clears[0], stageEnd[0]);
-			check("intro: the scene's THUNDER lock is handed back after the storm (Weather override Off too)", !locked[1] && !locked[0] && stageEnd[0] == 0 && stageEnd[1] == 0, det);
+			check("intro: the scene's weather lock is handed back after the storm (Weather override Off too)", !locked[1] && !locked[0] && stageEnd[0] == 0 && stageEnd[1] == 0, det);
 		}
 		// 73. (v1.1 audit) "A wild storm, now" works with Storm season Off (the shipped default), and Despawn everything never
 		// starts a new storm straight away
@@ -1984,93 +2114,101 @@ int main()
 		}
 
 		// ======================= v1.1 audit 2 =======================
-		// 76. (H1) the intro's colour grade over the handoff, at 144 fps: the Dark sky waits until the intro's grade has faded out (it
-		// replaced it at once, then the fade's CLEAR wiped the dark sky - at high fps for good), then eases in from nothing
+		// 76. (v1.7) the sky: the scene's own skies hold (IntroHoldsSky) from the start through the run for the balloon until Arthur's in it;
+		// in that window the storm system sends no lightning of its own (Lightning on), the intro's own is one flash, far off, in the scene;
+		// once he's aboard the storm's lightning comes back
 		reset(); srand(76);
 		{
-			g_set.weatherMode = 1; g_darkSky = true;
+			g_set.lightning = 1; g_set.weatherMode = 1;
 			mockTime = 1.0f;
 			IntroStart();
-			g_in.grade = "teaser_campMOD"; g_in.gradeStrength = 0.75f;   // (v1.3: no grade by default - [Intro] Grade asks for one)
+			bool heldScene = true, heldRun = true;
+			int f0 = calls[N_FORCE_LIGHTNING_FLASH], c0 = calls[N_FORCE_LIGHTNING_FLASH_AT_COORDS];
 			int k = 11;
-			for (; k <= 400 && g_in.stage != 4; k++) tick2(T(k));
-			IntroSkip();
-			for (; k <= 600 && g_in.stage != 5; k++) tick2(T(k));
-			std::string atHandoff = tcName;
-			const float dt = 1.0f / 144.0f;
-			g_frameDt = dt;
-			float t = T(k), fadeEnd = -1, darkFirst = -1, darkFirstK = -1;
-			bool replaced = false;
-			for (int f = 0; f < 144 * 8; f++)
-			{
-				t += dt;
-				size_t n0 = tcSets.size();
-				bool introGrade = g_in.gradeK > 0;
-				tick2(t, dt);
-				for (size_t i = n0; i < tcSets.size(); i++)
-				{
-					if (introGrade && tcSets[i] != g_in.grade) replaced = true;
-					if (!introGrade && darkFirst < 0 && tcSets[i] == "nbd1_ext_stormydarksky") { darkFirst = t; darkFirstK = tcStrength; }
-				}
-				if (fadeEnd < 0 && g_in.gradeK <= 0) fadeEnd = t;
-			}
-			bool darkOn = tcName == "nbd1_ext_stormydarksky" && fabsf(tcStrength - 0.6f) < 0.01f && g_storm.darkApplied;
-			sprintf_s(det, "grade at the handoff '%s' (the intro's '%s'); replaced while it faded %d; faded out %.2f s after the handoff; dark sky from %.2f s at strength %.3f; "
-				"8 s on: '%s' at %.2f (stage %d)", atHandoff.c_str(), g_in.grade.c_str(), (int)replaced, fadeEnd - T(k), darkFirst - T(k), darkFirstK, tcName.c_str(), tcStrength, g_in.stage);
-			check("intro grade -> Dark sky: no pop at the handoff, the dark sky eases in after the fade (144 fps)", !g_in.grade.empty() && atHandoff == g_in.grade && !replaced &&
-				fadeEnd > 0 && darkFirst >= fadeEnd && darkFirstK < 0.05f && darkOn && g_in.stage == 5, det);
+			for (; k <= 1200 && g_in.stage != 5; k++) { tick2(T(k)); if (g_in.stage >= 1 && g_in.stage <= 4 && !IntroHoldsSky()) heldScene = false; }
+			int coordsScene = calls[N_FORCE_LIGHTNING_FLASH_AT_COORDS] - c0;
+			float tH = T(k - 1);
+			for (; T(k) < tH + 9.0f; k++) { tick2(T(k)); if (!IntroHoldsSky()) heldRun = false; }   // (the run for the balloon, inside the 10 s shield)
+			int coordsRun = calls[N_FORCE_LIGHTNING_FLASH_AT_COORDS] - c0 - coordsScene;
+			int stormFlashes = calls[N_FORCE_LIGHTNING_FLASH] - f0;
+			k = WalkToBalloon(k);
+			bool freed = g_in.boarded && !IntroHoldsSky();
+			int fB = calls[N_FORCE_LIGHTNING_FLASH];
+			for (int j = 0; j < 300; j++) { RideBalloon(); tick2(T(k++)); }
+			int after = calls[N_FORCE_LIGHTNING_FLASH] - fB;
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			sprintf_s(det, "sky held all through the scene %d and the run for the balloon %d, let go once aboard %d; the storm's flashes in that window %d; the intro's flashes: %d in the "
+				"scene, %d in the run; the storm's flashes in the 30 s after boarding %d", (int)heldScene, (int)heldRun, (int)freed, stormFlashes, coordsScene, coordsRun, after);
+			check("intro: the scene's sky - no storm lightning until he's in the balloon, the intro's one far flash", heldScene && heldRun && freed && stormFlashes == 0 &&
+				coordsScene == 1 && coordsRun == 0 && after >= 1, det);
 		}
-		// 77. (M1, M2, L3) the intro's funnel settles a few metres off Arthur, on the far side from the close-up camera (it sat on him, so
-		// the calm-eye shots filmed through its core), and stays put from 36 s instead of chasing his balloon; the jets go back to normal
+		// 77. (v1.7) after the handoff: 10 s the tornado can't take Arthur (IntroShieldsPlayer), then he's grabbable (at least 2) until he's in
+		// the balloon; walking up to it (within 4 m) boards it - the Shard (a success), the blip gone, his own Arthur setting back; 15 s
+		// later the scene's over: stage 0, the settings as they were, the tornado no longer the scene's
 		reset(); srand(77);
 		{
+			g_set.arthur = 1; g_set.movement = 1; g_set.speed = 2; g_set.touchdownCam = true;
+			UI::Shard("", "", 0.1f);
 			mockTime = 1.0f;
 			IntroStart();
-			float off = -1, camToC = -1, wall = 0, moved = -1, fromBalloon = -1, boostAfter = -1;
-			V3 at36;
-			bool got36 = false;
-			for (int k = 11; k <= 2000; k++)
+			int k = ToStage(11, 5);
+			float tH = T(k - 1);
+			bool shieldEarly = true, shieldLate = true;
+			int arthurEarly = -1, arthurLate = -1;
+			for (; T(k) < tH + 11.0f; k++)
 			{
-				// the mock doesn't carry Arthur with the balloon: done here, so a funnel that chased him would show it
-				if (g_bal.on && !g_bal.waiting && (g_bal.seated || g_bal.attached)) playerPos = g_bal.pos + V3(0, 0, 1.0f);
 				tick2(T(k));
-				Tornado* tp = ITp();
-				if (!tp) continue;
-				if (g_in.stage == 4 && off < 0 && g_in.clock >= 80.0)
-				{
-					off = (tp->base - IntroSettleSpot()).len2d(); camToC = (lastCamCoord - tp->base).len2d(); wall = tp->wallRadius();
-				}
-				if (g_in.stage == 4 && !got36 && g_in.clock >= 82.0) { got36 = true; at36 = tp->base; }
-				if (g_in.stage == 5) { moved = (tp->base - at36).len2d(); fromBalloon = (g_bal.pos - tp->base).len2d(); boostAfter = g_bal.boostShown; break; }
+				float a = T(k) - tH;
+				if (a < 9.8f) { if (!IntroShieldsPlayer()) shieldEarly = false; arthurEarly = std::max(arthurEarly, g_set.arthur); }
+				if (a > 10.25f) { shieldLate = IntroShieldsPlayer(); arthurLate = g_set.arthur; }
 			}
-			// (v1.3: it settles on the camp - Arthur's in the balloon - and every camera stays outside its wall)
-			sprintf_s(det, "at 80 s: the funnel %.1f m from the middle of camp (wall %.1f m), the camera %.1f m from it; from 82 s to the handoff the funnel moved %.1f m and "
-				"the balloon was %.1f m from it at the handoff; jet boost after the handoff %.1f", off, wall, camToC, moved, fromBalloon, boostAfter);
-			check("intro: the funnel settles on the camp, the cameras stay outside it, and the balloon gets away; jets back to normal", off >= 0 && off < 6.0f &&
-				camToC > wall * 1.2f && got36 && moved >= 0 && moved < 12.0f && fromBalloon > 30.0f && boostAfter == 0.0f, det);
+			int blip = g_in.blip;
+			bool stage5 = g_in.stage == 5, waiting = g_bal.on && g_bal.waiting;
+			k = WalkToBalloon(k);
+			bool boarded = g_in.boarded && g_bal.on && !g_bal.waiting && (seatOf.count(1) || attachedTo.count(1));
+			bool blipGone = blip && !blips.count(blip) && g_in.blip == 0;
+			bool shard = UI::g_shard.a == "STORM CHASERS" && UI::g_shardGood;
+			int arthurBoard = g_set.arthur;
+			float tB = T(k - 1), tEnd = -1;
+			for (; k <= 2400; k++) { RideBalloon(); tick2(T(k)); if (g_in.stage == 0) { tEnd = T(k); break; } }
+			Tornado* tp = ITp();
+			bool unscripted = tp && !tp->scripted;
+			sprintf_s(det, "shielded the first 10 s %d (arthur %d), after %d (arthur %d); still waiting at 11 s %d (stage 5 %d); boarded %d, blip gone %d, Shard %d (\"%s\", good %d), "
+				"arthur %d once aboard; scene over %.1f s after boarding: stage %d, arthur %d move %d speed %d touchdown cam %d; the tornado %s",
+				(int)shieldEarly, arthurEarly, (int)shieldLate, arthurLate, (int)waiting, (int)stage5, (int)boarded, (int)blipGone, (int)shard, UI::g_shard.a.c_str(),
+				(int)UI::g_shardGood, arthurBoard, tEnd > 0 ? tEnd - tB : -1.0f, g_in.stage, g_set.arthur, g_set.movement, g_set.speed, (int)g_set.touchdownCam,
+				!tp ? "gone" : tp->scripted ? "still scripted" : "the world's");
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			check("intro: 10 s shield, then grabbable; boarding ends the mission and gives everything back", shieldEarly && arthurEarly == 0 && !shieldLate && arthurLate >= 2 &&
+				stage5 && waiting && boarded && blipGone && shard && arthurBoard == 1 && tEnd > 0 && tEnd - tB >= 14.9f && tEnd - tB <= 15.3f && g_set.arthur == 1 &&
+				g_set.movement == 1 && g_set.speed == 2 && g_set.touchdownCam && unscripted, det);
 		}
-		// 78. (M3) the jets' effects are streamed in while the screen is black: lighting them at 36 s never waits mid-scene (a streaming
-		// wait there froze the letterbox and subtitles for up to 1.5 s)
+		// 78. (M3, v1.7) nothing waits mid-scene: the build doesn't stand still when everything's loaded (the places are known, the ground's
+		// there), and the balloon's jets - streamed in while the screen was black - light at boarding without a streaming wait
 		reset(); srand(78);
 		{
 			countWaits = true; slowPtfx.insert(Joaat("anm_fire_dancers"));
 			mockTime = 1.0f;
 			IntroStart();
-			int buildWaits = 0, sceneWaits = 0;
-			bool jets = false;
-			for (int k = 11; k <= 1000; k++)
+			int buildWaits = 0, sceneWaits = 0, k = 11;
+			for (; k <= 1000 && g_in.stage != 5; k++)
 			{
 				int w0 = waits, st = g_in.stage;
 				tick2(T(k));
 				(st >= 4 ? sceneWaits : buildWaits) += waits - w0;
-				if (g_bal.jetFx[0] || g_bal.jetFx[1]) jets = true;
-				if (g_in.stage == 5) break;
 			}
+			int w0 = waits;
+			k = WalkToBalloon(k);
+			for (int j = 0; j < 20; j++) { RideBalloon(); tick2(T(k++)); }
+			int boardWaits = waits - w0;
+			bool jets = g_bal.jetFx[0] || g_bal.jetFx[1];
 			countWaits = false;
 			auto asked = ptfxAskedAt.find(Joaat("anm_fire_dancers"));
-			sprintf_s(det, "streaming waits while the screen was black %d, during the scene %d; jets lit %d; the jets' dictionary asked for at %.1f s", buildWaits, sceneWaits,
-				(int)jets, asked == ptfxAskedAt.end() ? -1.0f : asked->second);
-			check("intro: no streaming wait mid-scene for the balloon's jets", sceneWaits == 0 && jets, det);
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			sprintf_s(det, "streaming waits while the screen was black %d, during the scene %d, boarding %d; jets lit %d; the jets' dictionary asked for at %.1f s", buildWaits,
+				sceneWaits, boardWaits, (int)jets, asked == ptfxAskedAt.end() ? -1.0f : asked->second);
+			check("intro: no streaming wait mid-scene, nor for the balloon's jets", buildWaits == 0 && sceneWaits == 0 && boardWaits == 0 && jets && asked != ptfxAskedAt.end() &&
+				asked->second < 2.0f, det);
 		}
 		// 79. (M4) the roar's rumble, rendered offline (4 s at full volume and intensity): no longer sitting at the clip level, and mostly
 		// above 20 Hz (it was 56% of samples at the ceiling, two thirds of it subsonic)
@@ -2314,35 +2452,33 @@ int main()
 				nTree, trunks, real, stands, hides, pendTrunks, pendReal, released);
 			check("real trees: no stand-in where the hide cap ran out; an unstreamed stand-in is released", capOk && pendTrunks >= 1 && pendReal == 0 && released >= 1, det);
 		}
-		// 88. (L12) what a finished intro handed to the world (the gang, the camp) is still cleared by Despawn everything - but not a handle
-		// the game has since given to something else
+		// 88. (L12, v1.7) what a finished intro handed to the world (the riders, Cain, the horses) is still cleared by Despawn everything - but
+		// not a handle the game has since given to something else. (v1.7: the scene ends here because Arthur goes his own way, 450 m+)
 		reset(); srand(88);
 		{
 			mockTime = 1.0f;
 			IntroStart();
-			int k = 11;
-			for (; k <= 400 && g_in.stage != 4; k++) tick2(T(k));
+			int k = ToStage(11, 4);
 			IntroSkip();
+			k = ToStage(k, 5);
 			std::vector<int> ours;
-			for (; k <= 1400 && g_in.stage != 0; k++)
-			{
-				if (g_in.stage == 5 && ours.empty())
-				{
-					for (int i = 0; i < kCastCount; i++) if (g_in.cast[i].ped) ours.push_back(g_in.cast[i].ped);
-					for (Entity e : g_in.props) ours.push_back(e);
-				}
-				tick2(T(k));
-			}
-			bool done = g_in.stage == 0;
+			for (int i = 0; i < kCastCount; i++) if (g_in.cast[i].ped) ours.push_back(g_in.cast[i].ped);
+			for (Ped h : g_in.horses) if (h) ours.push_back(h);
+			for (Entity e : g_in.props) ours.push_back(e);
+			tick2(T(k++));
+			playerPos = g_in.O - g_in.D * 600.0f;   // gone his own way
+			for (int j = 0; j < 10 && g_in.stage != 0; j++) tick2(T(k++));
+			bool done = g_in.stage == 0, released = !g_introLeft.empty();
 			int alive = 0, reused = 0;
 			for (int e : ours) if (Obj(e)) { alive++; if (!reused) reused = e; }
 			if (reused) objects[reused].model = Joaat("a_c_horse_arabian_white");   // deleted by the game, the handle reused
 			ClearEverything();
 			int left = 0;
 			for (int e : ours) if (e != reused && Obj(e)) left++;
-			sprintf_s(det, "scene over %d; %d of %d cast + camp still in the world; after Despawn everything: left %d, the reused handle kept %d", (int)done, alive, (int)ours.size(),
-				left, (int)(reused && Obj(reused) != nullptr));
-			check("intro: Despawn everything clears what the scene left in the world (not a reused handle)", done && alive >= kCastCount && left == 0 && reused && Obj(reused), det);
+			sprintf_s(det, "scene over %d (handed to the world %d); %d of %d riders + Cain + horses still in the world; after Despawn everything: left %d, the reused handle kept %d, "
+				"the list cleared %d", (int)done, (int)released, alive, (int)ours.size(), left, (int)(reused && Obj(reused) != nullptr), (int)g_introLeft.empty());
+			check("intro: Despawn everything clears what the scene left in the world (not a reused handle)", done && released && alive >= 3 + 1 + kRiders && left == 0 &&
+				reused && Obj(reused) && g_introLeft.empty(), det);
 		}
 		// 89. (L13) no intro during a story mission; the tornado gun doesn't fire in a mission or while an auto test runs
 		reset(); srand(89);
@@ -2389,8 +2525,10 @@ int main()
 				a.c_str() + std::min(a.size(), a.find("$title'>") + 8), b.c_str() + std::min(b.size(), b.find("$body'>") + 7));
 			check("roar follows the rendered camera; '&' escaped once in the markup", vGameplay < 0.01f && vRendered > 0.2f && amp, det);
 		}
-		// 91. (L16) the honor sting: the game's toast or the mod's, never both; shots 11-12 frame Uncle / Pearson where they are when their
-		// lift is late (the camera went to the map's origin); the cow gets no human anim clip
+		// 91. (L16) the honor sting: the game's toast or the mod's, never both. (v1.7, the intro's part) the push: the funnel comes down on
+		// the ranch and stays there until it sweeps for the ridge, at its foot by the push; the paired shove clips (Arthur's and Micah's) just
+		// before it, the push on Arthur's line ("Don't fall off.", half a second in) or at its fallback time, Micah's push held 0.3 s, the
+		// fall's cut not before the push; then the funnel has Micah; Cain gets no clip
 		reset(); srand(91);
 		{
 			auto has = [&](const char* s) { for (auto& x : shown) if (x.find(s) != std::string::npos) return true; return false; };
@@ -2407,33 +2545,47 @@ int main()
 			mockTime = 5010.5f; UI::Frame(0.016f); shown.clear(); UI::Draw();
 			bool modOnly = calls[N_UI_FEED_POST_SAMPLE_TOAST_RIGHT] == p1 && has("HONOR");
 			feedId = 0;
-			// the shots, with the funnel held 200 m off from 24 s so the lifts come late
-			playerPos = V3(500, 500, 0);
+			// the intro's push
 			mockTime = 20.0f;
 			IntroStart();
-			float worst11 = -1, worst12 = -1;
-			bool uncleLate = false, pearsonLate = false;
-			for (int k = 201; k <= 1700; k++)
+			V3 spawnAt;
+			float heldMoved = -1, footAtPush = -1, shoveClk = -1, fallCut = -1, pushHeld = 0, gotAt = -1;
+			bool clips = false;
+			Ped micah = 0;
+			for (int k = 201; k <= 1700 && g_in.stage != 0; k++)
 			{
 				tick2(T(k));
-				if (g_in.stage != 4) continue;
 				Tornado* tp = ITp();
-				if (tp && g_in.clock >= 63.0 && g_in.clock < 67.0) tp->base = IL(0, 200);
-				const CastState& u = g_in.cast[CA_UNCLE], & p = g_in.cast[CA_PEARSON];
-				if (g_in.clock >= 75.4 && g_in.clock < 76.6 && u.ok && !u.lifted) { uncleLate = true; if (MockObj* o = Obj(u.ped)) worst11 = std::max(worst11, (lastCamCoord - o->p).len2d()); }
-				if (g_in.clock >= 78.2 && g_in.clock < 79.4 && p.ok && !p.lifted) { pearsonLate = true; if (MockObj* o = Obj(p.ped)) worst12 = std::max(worst12, (lastCamCoord - o->p).len2d()); }
-				if (g_in.clock > 70.0) break;
+				if (g_in.stage == 4 && tp)
+				{
+					if (heldMoved < 0) { spawnAt = tp->base; heldMoved = 0; }
+					if (g_in.clock < kIntroSweep - 0.1) heldMoved = std::max(heldMoved, (tp->base - spawnAt).len2d());
+				}
+				if (g_in.stage == 4 && shoveClk < 0 && Fired(40))
+				{
+					shoveClk = g_in.shovedAt; micah = CastPed(CA_MICAH);
+					footAtPush = tp ? (tp->base - g_in.O).len2d() : -1;
+					clips = animOf[1] == kAnimShoveAtt && micah && animOf[micah] == kAnimShoveVic;
+				}
+				if (g_in.stage == 4 && micah && g_in.clock > shoveClk + 0.05 && g_in.clock < shoveClk + 0.25)
+					if (MockObj* o = Obj(micah)) pushHeld = std::max(pushHeld, V3(o->v.x, o->v.y, 0).len2d());
+				if (g_in.stage == 4 && fallCut < 0 && g_in.camShot == SH_FALL) fallCut = (float)g_in.clock;
+				if (gotAt < 0 && g_in.micahGone) gotAt = g_in.stage == 4 ? (float)g_in.clock : 100.0f + (T(k) - g_in.afterStart);
+				if (g_in.stage == 5 && gotAt >= 0) break;
+				if (g_in.stage == 5 && T(k) - g_in.afterStart > 11.0f) break;
 			}
-			int cow = g_in.cast[CA_COW].ped;
-			bool cowLifted = g_in.cast[CA_COW].lifted;
-			std::string cowAnim = animOf.count(cow) ? animOf[cow] : "";
-			IntroAbort("harness");
-			sprintf_s(det, "HonorLost(false) with the feed working: game toast only %d; HonorLost(true): the mod's sting only %d | late lifts: Uncle %d, Pearson %d; shot 11's camera "
-				"%.1f m from Uncle, shot 12's %.1f m from Pearson | the cow lifted %d, anim clip '%s'", (int)gameOnly, (int)modOnly, (int)uncleLate, (int)pearsonLate, worst11, worst12,
-				(int)cowLifted, cowAnim.c_str());
-			// (v1.3: the shots that framed late posed lifts are gone - the gang go up as ragdolls; the honor and cow checks stay)
-			(void)uncleLate; (void)pearsonLate; (void)worst11; (void)worst12;
-			check("honor sting: one or the other; no human clip on the cow", gameOnly && modOnly && cowLifted && cowAnim.empty(), det);
+			float lineAt = g_in.lineStart[LN_ARTHUR_FALL];
+			float wantAt = lineAt > 0 ? std::max(kIntroShove, lineAt + 0.5f) : kIntroShove + 1.0f;
+			Ped cain = CastPed(CA_CAIN);
+			bool cainClip = cain && animOf.count(cain);
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			sprintf_s(det, "HonorLost(false) with the feed working: game toast only %d; HonorLost(true): the mod's sting only %d | the funnel moved %.1f m before the sweep, %.1f m "
+				"out from the ridge at the push; the push at %.2f s (Arthur's line at %.2f s, wanted %.2f s), the clips first %d, Micah sent off at %.1f m/s, the fall's cut at "
+				"%.2f s; the funnel has Micah at %.1f (100+ = after the handoff); Cain given a clip %d", (int)gameOnly, (int)modOnly, heldMoved, footAtPush, shoveClk, lineAt, wantAt,
+				(int)clips, pushHeld, fallCut, gotAt, (int)cainClip);
+			check("honor sting: one or the other; the intro's push: on its line, the funnel at the ridge's foot, Micah into it", gameOnly && modOnly && heldMoved >= 0 &&
+				heldMoved < 20.0f && footAtPush > kIntroPushDist - 4.0f && footAtPush < kIntroPushDist + 4.0f && shoveClk > 0 && fabsf(shoveClk - wantAt) <= 0.11f && clips &&
+				pushHeld > 6.0f && fallCut >= shoveClk && gotAt > 0 && gotAt < 108.0f && !cainClip, det);
 		}
 		// 92. (L17) the best scores are read at startup (LoadConfig), so the menu's help shows them before the first run; no help text is
 		// cut off in either menu look
@@ -2512,6 +2664,28 @@ int main()
 			check("script restart: the intro's camera, Arthur's ragdoll and balloon flag back; map tree check can run again", scene && camsBack && ragdollBack && treeCheckRan &&
 				flagOn && flagOff, det);
 		}
+		// 94b. (v1.7) a Script Hook restart mid-intro gives back the rest of what the scene holds: the user's Arthur setting - also in the run
+		// for the balloon, where the scene holds it at Immune for 10 s and then at Grabbable - and the clock (held still from the build)
+		{
+			int arthurAfter[2] = { -1, -1 }, held[2] = { -1, -1 }, paused[2] = { -1, -1 };
+			for (int run = 0; run < 2; run++)
+			{
+				reset(); srand(94);
+				g_set.arthur = 1;
+				mockTime = 1.0f;
+				IntroStart();
+				int k = run ? ToStage(11, 5) : ToClock(11, 20.0);
+				tick2(T(k++));
+				held[run] = g_set.arthur;
+				ResetAfterScriptRestart();
+				arthurAfter[run] = g_set.arthur; paused[run] = lastPauseClock;
+				g_set.arthur = 1; DespawnAll(); BalloonRemove("harness");
+			}
+			sprintf_s(det, "restart in the scene: arthur %d -> %d, clock paused %d | restart in the run for the balloon: arthur %d -> %d, clock paused %d", held[0], arthurAfter[0],
+				paused[0], held[1], arthurAfter[1], paused[1]);
+			check("script restart mid-intro: Arthur's setting and the clock given back (scene and run for the balloon)", held[0] == 0 && held[1] == 0 &&
+				arthurAfter[0] == 1 && arthurAfter[1] == 1 && paused[0] == 0 && paused[1] == 0, det);
+		}
 		// 95. (L8, L9) removing the balloon gets Arthur out of the seat before the vehicle goes; teleporting from the balloon removes it first
 		reset(); srand(95);
 		{
@@ -2529,23 +2703,29 @@ int main()
 				(int)seated2, (int)gone, playerPos.x, deletedWithPedInside);
 			check("balloon: never deleted with Arthur in the seat; teleport removes it first", seated && inside == 0 && seated2 && gone && deletedWithPedInside == 0, det);
 		}
-		// 96. (L4) Arthur's horse waits out the intro invincible and deaf to the screams, and is given back as it was
+		// 96. (L4, v1.7) Arthur's horse waits out the intro where he left it, invincible and out of the tornado's hands, and is given back as it
+		// was - here when the run for the balloon times out (150 s, never boarded): the scene ends by itself, Arthur's setting back
 		reset(); srand(96);
 		{
+			g_set.arthur = 1;
 			mockHorse = nextObject++;
 			objects[mockHorse].p = V3(4, -3, 0); objects[mockHorse].type = 1; objects[mockHorse].model = Joaat("a_c_horse_arabian_white");
 			mockTime = 1.0f;
 			IntroStart();
-			int k = 11;
-			for (; k <= 400 && g_in.stage != 4; k++) tick2(T(k));
-			int invIn = invincible.count(mockHorse) ? invincible[mockHorse] : -1, blockIn = blockEvents.count(mockHorse) ? blockEvents[mockHorse] : -1;
+			int k = ToStage(11, 4);
+			int invIn = invincible.count(mockHorse) ? invincible[mockHorse] : -1, blockIn = IsScripted(mockHorse);
 			bool inScene = invIn == 1 && blockIn == 1;
 			IntroSkip();
-			for (; k <= 1400 && g_in.stage != 0; k++) tick2(T(k));
-			bool after = g_in.stage == 0 && invincible[mockHorse] == 0 && blockEvents[mockHorse] == 0;
-			sprintf_s(det, "horse %d: in the scene invincible %d, events blocked %d; after the scene invincible %d, events blocked %d", mockHorse, invIn, blockIn,
-				invincible[mockHorse], blockEvents[mockHorse]);
-			check("intro: Arthur's horse protected in the scene and given back", inScene && after, det);
+			k = ToStage(k, 5);
+			tick2(T(k++));
+			bool stillOn = g_in.stage == 5;
+			float t = g_in.afterStart + 150.2f;   // (one long frame: nothing happened, the clock ran out)
+			tick2(t);
+			bool after = g_in.stage == 0 && invincible[mockHorse] == 0 && !IsScripted(mockHorse);
+			sprintf_s(det, "horse %d: in the scene invincible %d, out of the tornado's hands %d; the run for the balloon on %d, after 150 s: stage %d, invincible %d, out of its hands %d, "
+				"arthur %d, balloon left %d", mockHorse, invIn, blockIn, (int)stillOn, g_in.stage, invincible[mockHorse], (int)IsScripted(mockHorse), g_set.arthur, (int)g_bal.on);
+			DespawnAll(); BalloonRemove("harness");
+			check("intro: Arthur's horse protected in the scene and given back; the run times out", inScene && stillOn && after && g_set.arthur == 1, det);
 		}
 		// 97. (L6) the tree scan uses the stand-ins' cached model hashes: no GET_HASH_KEY in its loops (hundreds per trunk before)
 		reset(); srand(97);
@@ -2578,23 +2758,35 @@ int main()
 			sprintf_s(det, "stand-in hashes cached %d; GET_HASH_KEY calls in 19 s: real trees off %d, on %d (%d trunks torn out)", (int)cached, off, on, t1);
 			check("real trees: no GET_HASH_KEY in the tree scan", cached && t1 >= 2 && on - off <= 2, det);
 		}
-		// 98. (L18) when the intro is over its anim dictionaries go back to the game, and the camp models it asked for but didn't use are let go
+		// 98. (L18, v1.7) when Rockstar's camp won't come up (the map pieces don't switch on) the build gives up waiting for it and puts up the
+		// mod's own camp props (kCampProps), gone when the scene leaves the camp; the anim dictionaries are kept through the scene and go
+		// back to the game when it's over
 		reset(); srand(98);
 		{
+			iplWorks = false; countWaits = true;
 			mockTime = 1.0f;
 			IntroStart();
-			int k = 11;
-			for (; k <= 400 && g_in.stage != 4; k++) tick2(T(k));
-			int altsReleased = 0, alts = 0;
-			for (auto& p : kCampProps) if (p.alt) { alts++; if (modelsReleased.count(Joaat(p.alt))) altsReleased++; }
-			IntroSkip();
+			int k = ToStage(11, 4);
+			countWaits = false;
+			int buildWaits = waits, props = 0;
+			for (Entity e : g_in.props) if (Obj(e)) props++;
+			std::vector<Entity> propList = g_in.props;
+			bool campMap = g_in.campMap;
+			k = ToClock(k, kIntroShotAt[SH_ARRIVE] + 0.5);
+			int propsLeft = 0;
+			for (Entity e : propList) if (Obj(e)) propsLeft++;
 			bool heldInScene = dictsRemoved.empty();
-			for (; k <= 1400 && g_in.stage != 0; k++) tick2(T(k));
+			k = ToStage(k, 5);
+			k = WalkToBalloon(k);
+			for (int j = 0; j < 200 && g_in.stage != 0; j++) { RideBalloon(); tick2(T(k++)); }
 			int dicts = 0, removed = 0;
 			for (const char* d : kIntroDicts) { dicts++; if (dictsRemoved.count(d)) removed++; }
-			sprintf_s(det, "camp alternatives let go after the build %d of %d; dictionaries kept through the scene %d, released at the end %d of %d (stage %d)", altsReleased, alts,
-				(int)heldInScene, removed, dicts, g_in.stage);
-			check("intro: unused camp models and the anim dictionaries are released", altsReleased == alts && heldInScene && removed == dicts && g_in.stage == 0, det);
+			sprintf_s(det, "camp pieces asked for %d, on %d; Rockstar's camp %d -> our props %d of %d (after %d waits), left once the scene is on the ridge %d; dictionaries kept "
+				"through the scene %d, released at the end %d of %d (stage %d)", (int)iplRequested.size(), (int)iplActive.size(), (int)campMap, props, kCampPropCount, buildWaits,
+				propsLeft, (int)heldInScene, removed, dicts, g_in.stage);
+			DespawnAll(); BalloonRemove("harness");
+			check("intro: a fallback camp when Rockstar's won't come up; the anim dictionaries are released", !iplRequested.empty() && !campMap && props == kCampPropCount &&
+				buildWaits > 0 && propsLeft == 0 && heldInScene && removed == dicts && g_in.stage == 0, det);
 		}
 		// ======== v1.2 ========
 		// 99. voices: the tornado takes a man near Arthur, he screams, and Arthur answers once the scream is over
@@ -2818,37 +3010,42 @@ int main()
 			sprintf_s(det, "%d pages, peak loops %d (budget %d), after closing %d; style E made of %s: %d", GalPages(), maxLoops, g_set.ptfxBudget, LoopsInUse(), kLabLooped[idx], (int)picked);
 			check("texture gallery: pages cleanly, no leaked smoke, picks style E", maxLoops <= g_set.ptfxBudget && maxLoops >= kGalPerPage && LoopsInUse() == 0 && picked, det);
 		}
-		// 107. (v1.2) the intro's gags happen: gag outfits, Uncle's chair goes up with him, Pearson's pot and ladle, speech allowed in the
-		// slow motion (and off after), Dutch points at Arthur, and the gang walks it off before the scene lets go
-		reset(); srand(107);
+		// 107. (v1.7) Despawn everything mid-scene (at the ridge) and in the run for the balloon: the intro stops, no orphan balloon, the cast and
+		// the horses deleted, nothing left on the list of what the scene handed to the world, the camp's pieces put back (he's far from it), control
+		// back; and if
+		// the balloon goes some other way during the run, the scene ends by itself
 		{
-			mockTime = 1.0f;
-			IntroStart();
-			bool chairUp = false, potUp = false, flagIn = false, flagAfter = true, dutchFaces = false;
-			int wanders0 = 0;
-			for (int k = 11; k <= 2400 && !(g_in.stage == 0 && k > 200); k++)
+			char part[3][260] = {};
+			bool ok[3] = {};
+			for (int run = 0; run < 3; run++)
 			{
-				tick2(T(k));
-				if (g_in.stage != 4) continue;
-				double c = g_in.clock;
-				const CastState& u = g_in.cast[CA_UNCLE];
-				const CastState& pe = g_in.cast[CA_PEARSON];
-				if (c > 77.0 && u.lifted && u.held[0] && attachedTo.count(u.held[0]) && attachedTo[u.held[0]] == u.ped) chairUp = true;
-				if (c > 80.0 && pe.lifted && pe.held[0] && pe.held[1] && attachedTo.count(pe.held[0]) && attachedTo[pe.held[0]] == pe.ped && attachedTo[pe.held[1]] == pe.ped) potUp = true;
-				if (c > 87.9 && c < 89.9 && audioFlags["AllowScriptedSpeechInSlowMo"] == 1) flagIn = true;
-				if (c > 91.0 && c < 92.5) flagAfter = audioFlags["AllowScriptedSpeechInSlowMo"] == 0;
-				if (c > 85.0 && c < 86.5 && g_in.cast[CA_DUTCH].lifted) dutchFaces = true;
-				if (c < 1.0) wanders0 = calls[N_TASK_WANDER_STANDARD];
+				reset(); srand(107);
+				mockTime = 1.0f;
+				IntroStart();
+				int k = run == 0 ? ToClock(11, 31.0) : ToStage(11, 5);
+				tick2(T(k++));
+				std::vector<int> ents;
+				for (int i = 0; i < kCastCount; i++) if (g_in.cast[i].ped) ents.push_back(g_in.cast[i].ped);
+				for (Ped h : g_in.horses) if (h) ents.push_back(h);
+				int veh = g_bal.veh, before = (int)ents.size(), stage = g_in.stage;
+				if (run < 2) { ClearEverything(); for (int j = 0; j < 15; j++) tick2(T(k++)); }   // (v1.7.1: the camp pieces go back a moment later - he's far from it)
+				else { BalloonRemove("harness"); for (int j = 0; j < 30 && g_in.stage != 0; j++) tick2(T(k++)); }
+				int left = 0;
+				for (int e : ents) if (Obj(e)) left++;
+				int iplsOn = 0;
+				for (Hash h : iplRequested) if (iplActive.count(h)) iplsOn++;
+				bool balloonGone = !g_bal.on && !Obj(veh);
+				if (run < 2)
+					ok[run] = g_in.stage == 0 && balloonGone && before >= 3 + 1 + kRiders && left == 0 && g_introLeft.empty() && iplsOn == 0 && lastPlayerControl == 1 &&
+						lastRenderCams == 0 && blips.empty();
+				else
+					ok[run] = g_in.stage == 0 && balloonGone && left == before && !g_introLeft.empty() && blips.empty() && g_set.arthur == Settings().arthur;
+				sprintf_s(part[run], "stage %d: %d riders/Cain/horses, after: stage %d, left %d, handed to the world %d, balloon gone %d, camp pieces on %d, control %d, script cams %d, "
+					"blips %d", stage, before, g_in.stage, left, (int)g_introLeft.size(), (int)balloonGone, iplsOn, lastPlayerControl, lastRenderCams, (int)blips.size());
+				DespawnAll();
 			}
-			int walked = 0;
-			for (auto& kv : objects) (void)kv;
-			int wanders = calls[N_TASK_WANDER_STANDARD] - wanders0;
-			bool uncle = false, dutch = false;
-			for (auto& kv : outfitOf) { if (kv.second == 0xB93CB089) uncle = true; if (kv.second == 0x84793D7F) dutch = true; }
-			(void)walked; (void)dutchFaces;
-			sprintf_s(det, "outfits: Uncle's long johns %d, Dutch's party suit %d; Uncle's chair up with him %d; Pearson's pot and ladle %d; speech flag in the slow-mo %d, off after %d; walked it off %d; stage %d",
-				(int)uncle, (int)dutch, (int)chairUp, (int)potUp, (int)flagIn, (int)flagAfter, wanders, g_in.stage);
-			check("intro gags: outfits, Uncle's chair, Pearson's pot, slow-mo speech, walking it off", uncle && dutch && chairUp && potUp && flagIn && flagAfter && wanders >= 3 && g_in.stage == 0, det);
+			sprintf_s(det, "despawn mid-scene: %s | despawn in the run: %s | the balloon removed in the run: %s", part[0], part[1], part[2]);
+			check("intro: Despawn everything mid-scene / in the run leaves nothing behind; a lost balloon ends the run", ok[0] && ok[1] && ok[2], det);
 		}
 		// 108. (v1.2 audit 3) voices: a long ride gets its riding line; a near spawn gets its touchdown remark; the storm report counts
 		// a ride with Voices Off
@@ -2912,19 +3109,22 @@ int main()
 			check("gallery: keeps its camera over the drone, switches cleanly, exhibits keep their style", droneWas && camKept && texGone &&
 				afterSwitch == exhibitLoops && untouched && LoopsInUse() == 0 && !g_gal.cam, det);
 		}
-		// 110. (v1.2 audit 3) skipping the intro doesn't fire the v1.2 beats on the way out (no facepalm mid-air, no hat tip while boarding)
+		// 110. (v1.2 audit 3, v1.7) skipping the intro doesn't fire the scene's beats on the way out: no thunder flash, no point from John, no
+		// shove clips - the skip marks them done
 		reset(); srand(111);
 		{
 			mockTime = 1.0f;
 			IntroStart();
-			int k = 11;
-			for (; k <= 400 && !(g_in.stage == 4 && g_in.clock >= 10.0); k++) tick2(T(k));
+			int k = ToClock(11, 10.0);
+			size_t flashes0 = lightningP3.size();
 			IntroSkip();
 			for (int j = 0; j < 60; j++) tick2(T(k++));
-			Ped micah = g_in.cast[CA_MICAH].ped;
-			std::string m = animOf.count(micah) ? animOf[micah] : "", a = animOf.count(1) ? animOf[1] : "";
-			sprintf_s(det, "after the skip: Micah's last clip '%s', Arthur's '%s' (stage %d)", m.c_str(), a.c_str(), g_in.stage);
-			check("intro: a skip doesn't fire the v1.2 gags late", m != "action" && a != "action" && g_in.stage >= 4, det);
+			Ped john = g_in.cast[CA_JOHN].ped;
+			std::string jn = animOf.count(john) ? animOf[john] : "", a = animOf.count(1) ? animOf[1] : "";
+			int flashes = (int)(lightningP3.size() - flashes0), st = g_in.stage;
+			sprintf_s(det, "after the skip: John's last clip '%s', Arthur's '%s', lightning flashes %d (stage %d)", jn.c_str(), a.c_str(), flashes, st);
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			check("intro: a skip doesn't fire the scene's beats late", jn != kAnimPoint[1] && a != kAnimShoveAtt && flashes == 0 && st >= 4, det);
 		}
 		// 111. (v1.2) the memory reader: this process's RAM, and the biggest graphics card's usage and budget (real numbers - it's the
 		// one scenario that reads the machine it runs on)
@@ -3180,10 +3380,10 @@ int main()
 			sprintf_s(det, "aimed at him in 32 s: %d (fastest piece thrown %.1f m/s); in a wagon: %d; shielded: %d", free_, maxSp, inWagon, shielded);
 			check("things thrown at Arthur: capped, and never at a wagon or a shielded Arthur", free_ >= 1 && maxSp <= 40.5f && inWagon == 0 && shielded == 0, det);
 		}
-		// 119. (v1.3) the intro's story lines: one line of Rockstar's own conversation each (created, every voice added - Micah as
-		// MICAH_BELL - started, then the single line); the answer waits for the question to finish; the text blocks are asked for and
-		// given back; the conversation flag is on in the scene and off after. If the game won't play them, each falls back to its ambient
-		// line. Dutch is thrown at 30.2 s (inside the slow motion's reach now).
+		// 119. (v1.3, v1.7) the intro's story lines (every row of kIntroLines): one line of Rockstar's own conversation each - created, Arthur and
+		// every cast voice there added (Micah as MICAH_BELL and MICAH), started, then the single line - or, for a far speaker, played beside the
+		// camera by its audio name; never before its time; the text blocks asked for and given back; the conversation flag on in the scene and
+		// off after; Arthur's own line when he climbs into the balloon. If the game won't play them, each falls back to its ambient line 1.2 s on.
 		reset(); srand(119);
 		{
 			int storyN = 0, blocksN = 0;
@@ -3191,33 +3391,40 @@ int main()
 			{ static int* pn; pn = &blocksN; IntroStoryBlocks([](const char*) { (*pn)++; }); }
 			mockTime = 1.0f;
 			IntroStart();
-			bool flagIn = false;
-			float throwAt = -1;
-			for (int k = 11; k <= 2400 && !(g_in.stage == 0 && k > 200); k++)
+			bool flagIn = true;
+			int k = 11;
+			for (; k <= 1500 && g_in.stage != 5; k++) { tick2(T(k)); if (g_in.stage == 4 && audioFlags["DisableAbortConversationForDeathAndInjury"] != 1) flagIn = false; }
+			const float leaveCamp = kIntroShotAt[SH_VALENTINE] + 0.8f;
+			int heard = 0, early = 0, voicesBad = 0, byAudio = 0;
+			std::string missing, badVoices;
+			for (int i = 0; i < kIntroLineCount; i++)
 			{
-				tick2(T(k));
-				if (g_in.stage == 4 && g_in.clock > 20 && g_in.clock < 30 && audioFlags["DisableAbortConversationForDeathAndInjury"] == 1) flagIn = true;
-				if (throwAt < 0) for (int b : g_in.firedBeats) if (b == 11) throwAt = (float)g_in.clock;
+				const IntroLine& l = kIntroLines[i];
+				if (!l.root) continue;
+				float at = -1;
+				bool story = false;
+				for (auto& c : storyCalls) if (c.root == l.root && c.idx == l.idx && c.clk >= 0) { at = c.clk; story = true; break; }
+				if (at < 0 && l.audio) for (auto& n : nearSpeech) if (n.ctx == l.audio && n.clk >= 0) { at = n.clk; byAudio++; break; }
+				if (at < 0) { missing += std::string(" ") + l.root + "[" + std::to_string(l.idx) + "]"; continue; }
+				heard++;
+				if (at < l.t - 0.01f) early++;
+				if (!story) continue;
+				auto& names = convNames[l.root];
+				std::vector<std::string> want = { "ARTHUR", "MICAH" };
+				for (int c = 0; c < kCastCount; c++)
+				{
+					if (!kCast[c].speaker[0]) continue;
+					bool there = kCast[c].role == ROLE_RIDER || at < leaveCamp;
+					if (there) want.push_back(kCast[c].speaker);
+				}
+				for (auto& w : want) if (!names.count(w)) { voicesBad++; badVoices += std::string(" ") + l.root + ":" + w; }
 			}
-			// (v1.5: a far speaker's camp line is played beside the camera by its audio name - that counts as said)
-			int nearStory = 0;
-			for (auto& n : nearSpeech) for (auto& l : kIntroLines) if (l.audio && n.ctx == l.audio) nearStory++;
-			int calls = (int)storyCalls.size() + nearStory, played = g_in.storyPlayed, fell = g_in.storyFell;
-			bool micahBell = convNames["CFMB5_ACT"].count("MICAH_BELL") && convNames["CFMB5_ACT"].count("ARTHUR") && convNames["CFMB5_ACT"].count("DUTCH");
-			float faith = -1, say = -1, wrongT = -1, sorry = -1;
-			for (auto& c : storyCalls)
-			{
-				if (c.root == "CWDS1_ACT" && c.idx == 4) faith = c.t;
-				if (c.root == "CWDS1_ACT" && c.idx == 1) say = c.t;
-				if (c.root == "CDT26_ACT" && c.idx == 0) wrongT = c.t;
-				if (c.root == "CPGEN_CONF_GEN" && c.idx == 1) sorry = c.t;
-			}
-			for (auto& n : nearSpeech)
-			{
-				if (n.ctx == "CDT26_AAAA") wrongT = n.t;
-				if (n.ctx == "CWDS1_AAAE") faith = n.t;
-				if (n.ctx == "CWDS1_AAAB") say = n.t;
-			}
+			k = WalkToBalloon(k);
+			float boardT = T(k - 1);
+			bool afterLine = false;
+			for (auto& c : storyCalls) if (kAfterLine.root && c.root == kAfterLine.root && c.idx == kAfterLine.idx && c.t >= boardT - 0.01f) afterLine = true;
+			for (auto& s : said) if (s.ped == 1 && s.ctx == kAfterLine.ctx && s.t >= boardT - 0.01f) afterLine = true;
+			for (int j = 0; j < 200 && g_in.stage != 0; j++) { RideBalloon(); tick2(T(k++)); }
 			bool flagOff = audioFlags["DisableAbortConversationForDeathAndInjury"] == 0;
 			int given = (int)textDel.size(), clears = convHistoryClears;
 			// the same scene when the game won't play story lines
@@ -3225,56 +3432,85 @@ int main()
 			convWorks = false;
 			mockTime = 1.0f;
 			IntroStart();
-			for (int k = 11; k <= 2400 && !(g_in.stage == 0 && k > 200); k++) tick2(T(k));
-			int fell2 = g_in.storyFell, fbSaid = 0, fbWant = 0;
-			for (auto& n : nearSpeech) for (auto& l : kIntroLines) if (l.audio && n.ctx == l.audio) fell2++;   // (rescued beside the camera instead)
-			for (auto& l : kIntroLines)
+			k = ToStage(11, 5);
+			int fbWant = 0, fbOk = 0;
+			std::string fbBad;
+			for (int i = 0; i < kIntroLineCount; i++)
 			{
+				const IntroLine& l = kIntroLines[i];
 				if (!l.root || !l.ctx[0]) continue;
+				float ts = -1;
+				for (auto& c : storyCalls) if (c.root == l.root && c.idx == l.idx && c.clk >= 0) { ts = c.t; break; }
+				if (ts < 0) continue;   // (played beside the camera by its audio name: nothing to fall back from)
 				fbWant++;
-				for (auto& x : said) if (x.ctx == l.ctx[0] || (l.ctx[1] && x.ctx == l.ctx[1])) { fbSaid++; break; }
+				bool ok = false;
+				auto inCtx = [&](const std::string& x) { for (const char* c : l.ctx) if (c && x == c) return true; return false; };
+				for (auto& s : said) if (inCtx(s.ctx) && s.t >= ts + 1.15f && s.t <= ts + 1.45f) ok = true;
+				for (auto& n : nearSpeech) if (inCtx(n.ctx) && n.t >= ts + 1.15f && n.t <= ts + 1.45f) ok = true;
+				if (ok) fbOk++; else fbBad += std::string(" ") + l.root + "[" + std::to_string(l.idx) + "]";
 			}
-			sprintf_s(det, "story lines %d (text blocks %d): started %d, heard %d, fell back %d; Micah added as MICAH_BELL %d; \"If you say so.\" %.1f s after \"Faith...\", "
-				"Arthur's \"Sorry...\" %.1f s after Dutch's; text blocks given back %d, history cleared %d, flag in %d / off after %d; Dutch thrown at %.1f s | "
-				"without story lines: fell back %d of %d, ambient stand-ins heard %d of %d", storyN, blocksN, calls, played, fell, (int)micahBell, say - faith, sorry - wrongT,
-				given, clears, (int)flagIn, (int)flagOff, throwAt, fell2, storyN, fbSaid, fbWant);
-			check("intro story lines: played by name, one at a time, cleaned up, with a fallback for each", calls >= storyN - 1 && played >= storyN - 1 && fell <= 1 && micahBell &&
-				say - faith >= 2.0f && sorry - wrongT >= 2.0f && given == blocksN && clears >= 1 && flagIn && flagOff && throwAt > 87.3f && throwAt < 87.6f &&
-				fell2 >= storyN - 1 && fbSaid >= fbWant - 1, det);
+			int fell = g_in.storyFell;
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			sprintf_s(det, "story lines %d (text blocks %d): heard %d (by audio name beside the camera %d), missing:%s, early %d; voices missing %d:%s; Arthur's line at boarding %d; "
+				"text blocks given back %d, history cleared %d, flag in %d / off after %d | without story lines: fell back %d, the ambient line 1.2 s on %d of %d (late or missing:%s)",
+				storyN, blocksN, heard, byAudio, missing.empty() ? " none" : missing.c_str(), early, voicesBad, badVoices.c_str(), (int)afterLine, given, clears, (int)flagIn,
+				(int)flagOff, fell, fbOk, fbWant, fbBad.empty() ? " none" : fbBad.c_str());
+			check("intro story lines: played by name, all voices added, cleaned up, with a fallback for each", heard == storyN && early == 0 && voicesBad == 0 && afterLine &&
+				given == blocksN && clears >= 1 && flagIn && flagOff && fbWant >= 1 && fbOk == fbWant && fell >= fbWant, det);
 		}
-		// 120. (v1.3 audit) skipping the intro: in the slow motion it hands Dutch back to the tornado (he was left out of its hands); late
-		// (rising out of it) the last lines and the boom don't all fire at once
+		// 119b. (v1.7.1, playtest 19) the lines from Rockstar's random sets (kLinePicks): the take that started is read back; one that doesn't
+		// fit is stopped, its history cleared and drawn again - four draws at most across the scene, then whatever came is kept; one that fits
+		// is kept. (Here Dutch draws two wrong takes and then a right one; Arthur's never fits.) A line from no set is started once.
+		reset(); srand(119);
+		{
+			std::string dutch = kIntroLines[LN_DUTCH_GO].root, arthur = kIntroLines[LN_ARTHUR_FALL].root, susan = kIntroLines[LN_SUSAN].root;
+			int good = kLinePicks[0].ok[1];
+			takesFor[dutch] = { 2, 5, good };
+			takesFor[arthur] = { 9, 9, 9, 9, 9, 9 };
+			mockTime = 1.0f;
+			IntroStart();
+			int k = ToStage(11, 5);
+			int dStarts = convStarts[dutch], dClears = convHistoryClearsFor[dutch], aStarts = convStarts[arthur], aClears = convHistoryClearsFor[arthur];
+			int rerolls = g_in.rerolls, other = convStarts[susan];
+			bool dPicked = g_in.picked[LN_DUTCH_GO], aPicked = g_in.picked[LN_ARTHUR_FALL];
+			(void)k;
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			sprintf_s(det, "Dutch's set: started %d times, history cleared %d, settled %d; Arthur's: started %d, cleared %d, settled %d; draws again in all %d; Susan's line started %d",
+				dStarts, dClears, (int)dPicked, aStarts, aClears, (int)aPicked, rerolls, other);
+			check("intro: a wrong take from a random set is drawn again (four times at most, per line)", kLinePicks[0].line == LN_DUTCH_GO && dStarts == 3 && dClears == 2 && dPicked &&
+				aStarts == 5 && aClears == 4 && aPicked && rerolls == 4 && other == 1, det);
+		}
+		// 120. (v1.3 audit, v1.7) a late skip (half a second before the push) doesn't pile up the last lines (all marked said) or fire anything twice; a skip
+		// once the scene is about to hand over (within 1.5 s of it) is ignored
 		reset(); srand(120);
 		{
 			mockTime = 1.0f;
 			IntroStart();
-			int k = 11;
-			for (; k <= 1300 && !(g_in.stage == 4 && g_in.clock >= 88.0); k++) tick2(T(k));
-			Ped dutch = g_in.cast[CA_DUTCH].ped;
-			bool scriptedBefore = IsScripted(dutch);
+			int k = ToClock(11, kIntroShove - 0.5);
+			size_t said0 = said.size(), story0 = storyCalls.size(), near0 = nearSpeech.size();
+			float before = (float)g_in.clock;
 			IntroSkip();
-			bool scriptedAfter = IsScripted(dutch);
-			for (int j = 0; j < 20; j++) tick2(T(k++));
-			// late skip
+			float after = (float)g_in.clock;
+			for (int j = 0; j < 15 && g_in.stage == 4; j++) tick2(T(k++));
+			int lateLines = (int)(storyCalls.size() - story0) + (int)(nearSpeech.size() - near0);
+			std::string lateWhat;
+			for (size_t i = said0; i < said.size(); i++) if (IntroLineCtx(said[i].ctx)) { lateLines++; lateWhat += " " + said[i].ctx; }
+			int balloons = 0;
+			for (auto& kv : objects) if (kv.second.type == 2) balloons++;
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			// too late to skip
 			reset(); srand(121);
 			mockTime = 1.0f;
 			IntroStart();
-			k = 11;
-			for (; k <= 1400 && !(g_in.stage == 4 && g_in.clock >= 95.6); k++) tick2(T(k));
-			size_t said0 = said.size(), story0 = storyCalls.size();
+			k = ToClock(11, kIntroHandoff - 1.4);
+			float lateBefore = (float)g_in.clock;
 			IntroSkip();
-			for (int j = 0; j < 10; j++) tick2(T(k++));
-			// (only the intro's own lines count: Arthur's everyday voice may well react to the tornado once he's back in control)
-			int lateLines = (int)(storyCalls.size() - story0);
-			std::string lateWhat;
-			for (size_t i = said0; i < said.size(); i++)
-			{
-				bool intro = false;
-				for (auto& l : kIntroLines) if (l.t > 95.6f) for (const char* c : l.ctx) if (c && said[i].ctx == c) intro = true;
-				if (intro) { lateLines++; lateWhat += " " + said[i].ctx; }
-			}
-			sprintf_s(det, "mid-throw skip: Dutch scripted before %d, after %d; a late skip then said %d lines at once (%s)", (int)scriptedBefore, (int)scriptedAfter, lateLines, lateWhat.c_str());
-			check("intro skip: Dutch back in the tornado's hands; no pile-up of lines after a late skip", scriptedBefore && !scriptedAfter && lateLines == 0, det);
+			bool ignored = (float)g_in.clock == lateBefore && g_in.camShot >= 0;
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			sprintf_s(det, "skip at %.1f s -> %.2f s: lines after it %d (%s), balloons %d | a skip at %.2f s ignored %d", before, after, lateLines, lateWhat.c_str(), balloons,
+				lateBefore, (int)ignored);
+			check("intro: a late skip piles nothing up; a skip at the very end is ignored", before >= kIntroShove - 0.5f && before < kIntroShove - 0.3f && fabsf(after - (kIntroShotAt[SH_FALL] + 0.2f)) < 0.01f &&
+				lateLines == 0 && balloons == 1 && ignored, det);
 		}
 		// 121. (v1.3 audit) the real-tree scan leaves the mod's own trees alone: a test tree the mod spawned is a tree model too, and so
 		// is a map tree that's already been torn out (its hide is in place) - neither is taken; a real map tree beside them still is
@@ -3367,63 +3603,50 @@ int main()
 			check("landings: no stratosphere over a town, nothing over 60 m/s, nothing thrown at a flying Arthur", inTown == 0 && outTown > 20 && fastest <= 60.01f &&
 				!airborne && grounded && orbitMax <= 60.01f, det);
 		}
-		// 124. the intro's camera director: with trees right where Arthur's and Dutch's close-ups want to stand, the cameras move until
-		// they can see their man (the line from his head to the lens is clear), and the moves are logged
-		reset(); srand(124);
+		// 124. (v1.4, v1.7.1) the intro's camera director: with a tree right between the lens and Micah's face in two of his shots (over Arthur's
+		// shoulder at camp, the words on the ridge), the cameras move until they can see him (the line from his head to the lens is clear), and the
+		// moves are logged. (Where the shots want to stand comes from a first run of the same scene without the trees.)
 		{
+			V3 wantCam[2], head[2];
+			bool got[2] = {};
+			const int shots[2] = { SH_MICAH, SH_RIDGE_M };
+			reset(); srand(124);
 			mockTime = 1.0f;
 			IntroStart();
 			int k = 11;
-			for (; k <= 200 && g_in.stage < 4; k++) tick2(T(k));
-			// a trunk 1.2 m in front of Arthur's face toward the camp (in the way of shots 3 and 6), and one in front of Dutch
-			V3 head = PedHead(PLAYER::PLAYER_PED_ID());
-			V3 af = HeadingDir(ENTITY::GET_ENTITY_HEADING(PLAYER::PLAYER_PED_ID()));   // (v1.6: the close-ups are in front of his face)
-			V3 tA = head + af * 1.2f;
-			V3 dh = PedHead(CastPed(CA_DUTCH));
-			V3 toBal = FlatDir(dh, g_bal.on ? g_bal.pos : IL(16, -10));
-			V3 tD = dh + (toBal * 3.0f - V3(-toBal.y, toBal.x, 0) * 1.2f) * 0.5f;   // (halfway along shot 8's line of sight)
-			world.clear();
-			world.push_back(Cyl(tA.x, tA.y, 0.45f, 30.0f));
-			world.push_back(Cyl(tD.x, tD.y, 0.35f, 30.0f));
-			int arthurFrames = 0, arthurBlocked = 0, dutchFrames = 0, dutchBlocked = 0;
-			for (; k <= 900 && g_in.stage == 4 && g_in.clock < 40.0; k++)
+			for (; k <= 1000 && g_in.stage != 5 && !(got[0] && got[1]); k++)
 			{
 				tick2(T(k));
-				int sh = g_in.camShot;
-				if (sh == 2 || sh == 4 || sh == 6 || sh == 9)
-				{
-					arthurFrames++;
-					if (!IntroClear(PedHead(PLAYER::PLAYER_PED_ID()), lastCamCoord, PLAYER::PLAYER_PED_ID())) arthurBlocked++;
-				}
-				if (sh == 8)
-				{
-					dutchFrames++;
-					if (!IntroClear(PedHead(CastPed(CA_DUTCH)), lastCamCoord, CastPed(CA_DUTCH))) dutchBlocked++;
-				}
+				for (int s = 0; s < 2; s++)
+					if (!got[s] && g_in.stage == 4 && g_in.camShot == shots[s]) { got[s] = true; wantCam[s] = lastCamCoord; head[s] = PedHead(CastPed(CA_MICAH)); }
+			}
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			// again, with the trees
+			reset(); srand(124);
+			mockTime = 1.0f;
+			IntroStart();
+			k = ToStage(11, 4);
+			world.clear();
+			// (over the shoulder the lens is a step behind Arthur: a slim trunk just in front of Micah's face; on the ridge, halfway)
+			{ V3 m = head[0] + (wantCam[0] - head[0]) * 0.3f; world.push_back(Cyl(m.x, m.y, 0.15f, 30.0f)); }
+			{ V3 m = (wantCam[1] + head[1]) * 0.5f; world.push_back(Cyl(m.x, m.y, 0.4f, 30.0f)); }
+			int frames[2] = {}, blocked[2] = {};
+			for (; k <= 1200 && g_in.stage == 4; k++)
+			{
+				tick2(T(k));
+				for (int s = 0; s < 2; s++)
+					if (g_in.camShot == shots[s])
+					{
+						frames[s]++;
+						if (!IntroClear(PedHead(CastPed(CA_MICAH)), lastCamCoord, CastPed(CA_MICAH))) blocked[s]++;
+					}
 			}
 			int moves = g_in.dirMoves;
-			bool dutchMoved = false;
-			// the balloon's close-ups as it rises (5 m/s; the mock's Arthur doesn't ride the balloon, so he's moved here): the camera
-			// stays above his head, not trailing down into the basket (v1.4 review)
 			world.clear();
-			int riseFrames = 0, riseLow = 0;
-			for (; k <= 2000 && g_in.stage == 4 && g_in.clock < 94.5; k++)
-			{
-				if (g_in.clock >= 52.0) playerPos.z += 0.16f;   // (the balloon climbs at 1.6 m/s)
-				tick2(T(k));
-				int sh = g_in.camShot;
-				if (sh == 15 || sh == 18 || sh == 22)
-				{
-					riseFrames++;
-					if (lastCamCoord.z < PedHead(PLAYER::PLAYER_PED_ID()).z) riseLow++;
-				}
-			}
-			IntroAbort("harness");
-			(void)dutchMoved;
-			sprintf_s(det, "Arthur's close-ups: %d frames, %d with a tree between him and the lens; Dutch's: %d frames, %d blocked; the director moved %d shots | "
-				"rising balloon: %d frames, the camera below his head in %d", arthurFrames, arthurBlocked, dutchFrames, dutchBlocked, moves, riseFrames, riseLow);
-			check("intro director: the close-ups always see their man", arthurFrames > 40 && arthurBlocked == 0 && dutchFrames > 10 && dutchBlocked == 0 && moves >= 3 &&
-				riseFrames > 20 && riseLow == 0, det);
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			sprintf_s(det, "wanted cameras found %d/%d; with the trees: over Arthur's shoulder at Micah %d frames, %d with the tree between Micah and the lens; the ridge %d frames, %d blocked; the "
+				"director moved %d shots", (int)got[0], (int)got[1], frames[0], blocked[0], frames[1], blocked[1], moves);
+			check("intro director: the close-ups always see their man", got[0] && got[1] && frames[0] > 20 && blocked[0] == 0 && frames[1] > 20 && blocked[1] == 0 && moves >= 2, det);
 		}
 		// ======== v1.5 (playtest 13) ========
 		// 125. town safety: on a Saint Denis street a fixed prop in the wall stays fixed - not ripped loose, not carried off; with
@@ -3581,63 +3804,105 @@ int main()
 			check("ride camera: out round Arthur and back, steerable, and a throw ends it", !firstWide && secondWide && thirdWide && startD < 10.0f && maxD >= 20.0f &&
 				maxD <= 40.5f && endD < 12.0f && endedAlone && fabsf(turned) > 1.0f && plainOff && wideOff, det);
 		}
-		// 130. (v1.5) the intro's ears: no line starts in the first second after a cut; a cut waits for a line still being said (8 s
-		// in all at most); a far-off speaker's camp line is played beside the camera, by its audio name, in their own voice; the
-		// subtitles' text blocks roll (a handful at a time, not all 17). (v1.5 review) Cuts really are held - each 2.2 s at most, and
-		// never longer than the line: a line beside the camera holds a cut only until 2.2 s after it began (real time); and never
-		// at the cuts round Dutch's pass
+		// 130. (v1.5, v1.7) the intro's ears and holds: no line starts within kIntroEarDelay of a cut (unless it's waited its 1.5 s); a cut waits
+		// for a line still being said - each hold 2.2 s at most, 6 s in all, and only while something is being said (the mock's conversations
+		// run 4 s here, so some cut has to wait); 130b: the dips to black to a new place
 		reset(); srand(130);
 		{
+			convLen = 4.0f;
 			mockTime = 1.0f;
 			IntroStart();
 			std::vector<float> cuts;
-			int lastShot = -2, maxBlocks = 0;
-			float earliestAfterCut = 99.0f;
-			size_t said0 = said.size(), story0 = storyCalls.size();
-			float clk = 0;
+			int lastShot = -2, k = 11;
 			float curHold = 0, maxHold = 0, prevHold = 0;
-			int holds = 0, overHeld = 0, throwHeld = 0;
-			for (int k = 11; k <= 2400 && !(g_in.stage == 0 && k > 200); k++)
+			int holds = 0, overHeld = 0;
+			for (; k <= 1500 && g_in.stage != 5; k++)
 			{
-				size_t sN = said.size(), cN = storyCalls.size(), nN = nearSpeech.size();
 				tick2(T(k));
 				if (g_in.stage != 4) continue;
-				clk = (float)g_in.clock;
+				float clk = (float)g_in.clock;
 				if (g_in.camShot != lastShot) { lastShot = g_in.camShot; cuts.push_back(clk); }
-				bool started = said.size() > sN || storyCalls.size() > cN || nearSpeech.size() > nN;
-				// (the cast's own reactions aren't scripted lines: only the intro's, which come through these three)
-				if (started && !cuts.empty() && clk > 1.0f) earliestAfterCut = std::min(earliestAfterCut, clk - cuts.back());
-				int live = 0;
-				for (int i = 0; i < kIntroLineCount; i++) if (g_in.blockReq[i] && !g_in.blockGone[i]) live++;
-				maxBlocks = std::max(maxBlocks, live);
-				// the holds
 				if (g_in.holdHere > prevHold)
 				{
 					curHold = g_in.holdHere;
 					bool conv = g_in.storyLine >= 0 && AUDIO::IS_SCRIPTED_CONVERSATION_PLAYING(kIntroLines[g_in.storyLine].root);
 					bool amb = g_in.ambPed && AUDIO::IS_AMBIENT_SPEECH_PLAYING(g_in.ambPed);
-					if (!conv && !amb && (nearSpeech.empty() || mockTime - nearSpeech.back().t > 2.3f)) overHeld++;   // held for nothing
-					float nx = IntroNextCut(clk);
-					if (nx >= kIntroDutchThrow && nx <= kIntroSlowMo1 + 0.7f) throwHeld++;
+					// (v1.7.1: or a reply still due in this shot)
+					bool due = false;
+					for (int i = 0; i < kIntroLineCount; i++)
+						if (!g_in.linePlayed[i] && kIntroLines[i].t >= kIntroShotAt[IntroShotIndex(clk)] && kIntroLines[i].t < IntroNextCut(clk)) due = true;
+					if (!conv && !amb && !due && (nearSpeech.empty() || mockTime - nearSpeech.back().t > 2.3f)) overHeld++;   // held for nothing
 				}
 				else if (g_in.holdHere == 0 && curHold > 0) { holds++; maxHold = std::max(maxHold, curHold); curHold = 0; }
 				prevHold = g_in.holdHere;
 			}
-			bool byAudio = false;
-			std::string nearList;
-			for (auto& n : nearSpeech)
+			float holdTotal = g_in.holdTotal;
+			int tooSoon = 0, started = 0;
+			std::string soon;
+			for (int i = 0; i < kIntroLineCount; i++)
 			{
-				nearList += " " + n.ctx + "/" + n.voice;
-				for (int i = 0; i < kIntroLineCount; i++)
-					if (kIntroLines[i].audio && n.ctx == kIntroLines[i].audio && n.voice == IntroVoice(kIntroLines[i].who) && n.camDist < 3.0f) byAudio = true;
+				float s = g_in.lineStart[i];
+				if (s <= 0) continue;
+				started++;
+				float lastCut = -100;
+				for (float c : cuts) if (c <= s + 1e-4f) lastCut = c;
+				float ear = std::min(kIntroEarDelay, std::max(0.3f, kIntroLines[i].t - kIntroShotAt[IntroShotIndex(kIntroLines[i].t)]));   // (v1.7.3: a line scheduled sooner)
+				if (s - lastCut < ear - 0.01f && s < kIntroLines[i].t + 1.5f - 0.01f) { tooSoon++; soon += " " + std::to_string(i) + "@" + std::to_string(s - lastCut).substr(0, 4); }
 			}
-			(void)said0; (void)story0;
-			sprintf_s(det, "%d cuts; the earliest a line started after a cut %.2f s; %d cuts held (%.1f s in all, the longest %.2f s; held with nothing being said %d frames, "
-				"round Dutch's pass %d); lines beside the camera %d (%s) - a camp line by its audio name in the speaker's own voice %d; text blocks live at once at most %d",
-				(int)cuts.size(), earliestAfterCut, holds, g_in.holdTotal, maxHold, overHeld, throwHeld, (int)nearSpeech.size(), nearList.c_str(), (int)byAudio, maxBlocks);
-			check("intro ears: a second after every cut, held cuts within budget, far lines beside the camera, rolling subtitles",
-				cuts.size() >= 20 && earliestAfterCut >= 0.95f && g_in.holdTotal <= 8.05f && holds >= 1 && maxHold <= 2.25f && overHeld == 0 && throwHeld == 0 &&
-				byAudio && maxBlocks <= 8, det);
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			// (v1.7.1) the move to Valentine is a dip to black, and the ground round Arthur there isn't in yet
+			reset(); srand(130);
+			mockTime = 1.0f;
+			IntroStart();
+			k = ToStage(11, 4);
+			noCollisionAt.push_back(g_in.VR);
+			float dipFrom = -1, dipTo = -1, clkAfter = -1, clkMaxIn = 0;
+			bool fadedOut = false, frozenIn = true, sawDip2 = false, campLeft = false;
+			for (; k <= 1500 && g_in.stage == 4 && g_in.phase < 2; k++)
+			{
+				tick2(T(k));
+				if (g_in.dip && dipFrom < 0) dipFrom = T(k);
+				if (g_in.dip) { clkMaxIn = std::max(clkMaxIn, (float)g_in.clock); if (screenFadedOut) fadedOut = true; }
+				if (g_in.dip == 2)
+				{
+					sawDip2 = true; campLeft = g_in.campGone;
+					for (Ped h : g_in.horses) if (h && !(Obj(h) && Obj(h)->frozen)) frozenIn = false;
+				}
+				if (g_in.phase >= 2) { dipTo = T(k); clkAfter = (float)g_in.clock; }
+			}
+			bool unfrozen = true, mountedAfter = true;
+			for (int s = 0; s < kRiders; s++)
+			{
+				Ped h = g_in.horses[s];
+				if (h && Obj(h) && Obj(h)->frozen) unfrozen = false;
+				Ped p = Rider(s);
+				if (!p || !PED::IS_PED_ON_MOUNT(p)) mountedAfter = false;
+			}
+			bool fadedIn = !screenFadedOut;
+			// the dip to the ridge, with its ground there: it's over in a moment
+			noCollisionAt.clear();
+			float ridgeFrom = -1, ridgeTo = -1;
+			for (; k <= 1500 && g_in.stage == 4 && g_in.phase < 3; k++)
+			{
+				tick2(T(k));
+				if (g_in.dip && ridgeFrom < 0) ridgeFrom = T(k);
+				if (g_in.phase >= 3) ridgeTo = T(k);
+			}
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			sprintf_s(det, "%d cuts; %d lines started, %d within %.1f s of a cut (%s); %d cuts held for a line (%.1f s in all, the longest %.2f s; held with nothing being said %d "
+				"frames)", (int)cuts.size(), started, tooSoon, kIntroEarDelay, soon.c_str(), holds, holdTotal, maxHold, overHeld);
+			check("intro ears: never right after a cut; cuts held for lines within budget", (int)cuts.size() >= kIntroShotCount && started == kIntroLineCount && tooSoon == 0 &&
+				holds >= 1 && maxHold <= 3.2f + 0.11f && holdTotal <= 14.0f + 0.11f && overHeld == 0, det);
+			// 130b. (v1.7.1) a move to a new place is a dip to black: the screen fades out, the camp is left, the four (mounted) are taken there
+			// with their horses frozen, the cut waits in the dark for the ground round Arthur (3 s at most), then they're put on it, the
+			// horses let go and the picture comes back, the clock at the new shot's start. With the ground there the dip is over at once.
+			sprintf_s(det, "Valentine (no ground): dip from %.1f s to %.1f s (%.2f s), faded out %d, camp left %d, horses frozen in the dark %d (waited for the ground %d); after: "
+				"faded in %d, horses free %d, all four mounted %d, the clock %.2f (held at most %.2f in the dark) | the ridge (ground there): dip %.2f s",
+				dipFrom, dipTo, dipTo - dipFrom, (int)fadedOut, (int)campLeft, (int)frozenIn, (int)sawDip2, (int)fadedIn, (int)unfrozen, (int)mountedAfter, clkAfter, clkMaxIn,
+				ridgeTo - ridgeFrom);
+			check("intro: the dips - in the dark until the new place's ground is in (3 s at most), horses frozen meanwhile", dipFrom > 0 && dipTo - dipFrom >= 2.95f &&
+				dipTo - dipFrom <= 4.0f && fadedOut && campLeft && sawDip2 && frozenIn && fadedIn && unfrozen && mountedAfter &&
+				fabsf(clkAfter - kIntroShotAt[SH_VALENTINE]) <= 0.11f && clkMaxIn <= kIntroShotAt[SH_VALENTINE] + 0.01f && ridgeFrom > 0 && ridgeTo - ridgeFrom >= 1.15f && ridgeTo - ridgeFrom <= 1.6f, det);
 		}
 		// ======== v1.6 (playtest 14) ========
 		// 131. the new throws, through the catch: sky-high keeps climbing at 50 m/s for 3.5 s; far soft glides down at 4.5 m/s keeping its
@@ -3708,118 +3973,119 @@ int main()
 				glide.z == -4.5f && glide.x > 18.0f && dive <= -45.0f && shielded && hit && bursts >= 2 && hurt == -1 && farInTown == 0 &&
 				glideT > 40.0f && worstFall >= -5.5f && glideKindKept && counted, det);
 		}
-		// 132. (v1.6, playtest 14) the intro: Arthur's gestures are story-mode ones (the Online emotes never loaded); (v1.6.1, playtest 15:
-		// "fly the balloon into micah, knocking him over before taking off, all in one swoop") the balloon skims across the camp into
-		// Micah and knocks him flying, then climbs; Dutch, steered, crosses the slow motion a few metres from Arthur on the camera's side;
-		// Arthur's close-ups are in front of his face; the shot of the gang going up is from the camp's edge, not 58 m+
+		// 132. (v1.7) the intro's places are found once: with no TornadoRedemption_intro.txt the build surveys them (Arthur is taken to the road
+		// out of Valentine and to the ranch while the screen's black) and writes the file; with it there, no survey (he's never taken to the
+		// ranch) and the same places come back from it
 		reset(); srand(132);
 		{
-			bool noOnline = true;
-			for (const char* d : kIntroDicts) if (strstr(d, "script_mp@")) noOnline = false;
+			BackupSpots();
+			remove(IntroSpotsPath().c_str());
+			auto atRanch = []() { for (auto& p : playerPuts) if ((p - kRanchC).len2d() < 60.0f) return true; return false; };
 			mockTime = 1.0f;
 			IntroStart();
-			int faceFrames = 0, backFrames = 0, gangFrames = 0;
-			float gangFar = 0, dutchStart = 0, dutchMin = 99, micahOut = 0, skimLow = 99, swoopClosest = 99, climbAfter = 0;
-			bool ran = false, knocked = false, dutchCamSide = false;
-			float hitAt = -1;
-			std::string backShots;
-			for (int k = 11; k <= 2400 && !(g_in.stage == 0 && k > 200); k++)
-			{
-				tick2(T(k));
-				if (g_in.stage != 4) continue;
-				float c = (float)g_in.clock;
-				Ped me = PLAYER::PLAYER_PED_ID();
-				V3 head = PedHead(me);
-				Ped micah = CastPed(CA_MICAH), dutch = CastPed(CA_DUTCH);
-				for (int b : g_in.firedBeats) if (b == 22) ran = true;
-				// the swoop (the mock's peds don't walk: Micah is where he stood up)
-				if (g_in.swoop && micah)
-				{
-					skimLow = std::min(skimLow, g_bal.pos.z + g_bal.basketZ - mockGroundZ);
-					swoopClosest = std::min(swoopClosest, (V3(ENTITY::GET_ENTITY_COORDS(micah, FALSE, FALSE)) - g_bal.pos).len2d());
-				}
-				if (!knocked && micah && g_in.swoopHit)
-				{
-					knocked = true; hitAt = c;
-					if (MockObj* o = Obj(micah)) micahOut = g_in.swoopDir.x * o->v.x + g_in.swoopDir.y * o->v.y;
-				}
-				if (knocked && c > hitAt + 0.05f && c < hitAt + 0.25f && micah)
-					if (MockObj* o = Obj(micah)) micahOut = std::max(micahOut, V3(o->v.x, o->v.y, 0).len2d());   // (the knock, held a few frames; v1.6.1 review: off to the side)
-				if (knocked && c > hitAt + 1.0f && c < hitAt + 1.2f) climbAfter = g_bal.vel.z;
-				int sh = g_in.camShot;
-				// (the mock's Arthur never leaves the ground - in the sweep he's in the funnel, and the director swings a shot out of its
-				// smoke: a few frames from behind are that)
-				if (sh == 2 || sh == 4 || sh == 6 || sh == 9 || sh == 15 || sh == 18 || sh == 22)
-				{
-					V3 af = HeadingDir(ENTITY::GET_ENTITY_HEADING(me));
-					V3 d = lastCamCoord - head;
-					if (d.x * af.x + d.y * af.y > 0.5f) faceFrames++; else { backFrames++; if (backShots.size() < 60) backShots += " " + std::to_string(sh) + "@" + std::to_string((int)(c * 10)); }
-				}
-				if (sh == 19) { gangFrames++; gangFar = std::max(gangFar, (lastCamCoord - IntroSettleSpot()).len2d()); }
-				if (dutch && c >= 87.4f && c < 90.4f)
-				{
-					V3 dpos = ENTITY::GET_ENTITY_COORDS(dutch, FALSE, FALSE);
-					float dd = (dpos - head).len();
-					if (dutchStart == 0) dutchStart = dd;
-					if (dd < dutchMin)
-					{
-						dutchMin = dd;
-						V3 a = dpos - head, b = lastCamCoord - head;
-						dutchCamSide = a.x * b.x + a.y * b.y > 0;   // (closest to Arthur on the camera's side: between the lens and him)
-					}
-				}
-			}
-			sprintf_s(det, "no Online emotes %d; Micah up and heading for it %d; the swoop: the basket as low as %.2f m, %.1f m from Micah at the closest, hit him %d at %.1f s, "
-				"knocked on at %.1f m/s, climbing at %.1f m/s a second later; Arthur's close-ups: %d frames in front of his face, %d behind (%s); the gang going up: %d frames, "
-				"the camera at most %.0f m from the camp; Dutch: %.1f m off at the cut, %.1f m from Arthur at the closest, on the camera's side %d",
-				(int)noOnline, (int)ran, skimLow, swoopClosest, (int)knocked, hitAt, micahOut, climbAfter, faceFrames, backFrames, backShots.c_str(), gangFrames, gangFar,
-				dutchStart, dutchMin, (int)dutchCamSide);
-			IntroAbort("harness");
-			check("intro: story-mode gestures, the balloon swoops into Micah, Dutch right past the basket, close-ups at his face, the gang going up close",
-				noOnline && ran && knocked && hitAt < 55.5f && skimLow < 1.0f && swoopClosest < 2.2f && micahOut > 6.0f && climbAfter > 2.0f &&
-				faceFrames > 60 && backFrames <= 10 && gangFrames > 10 && gangFar < 40.0f && dutchStart > 6.0f && dutchMin < 4.5f && dutchCamSide, det);
+			ToStage(11, 3);
+			bool fromFile1 = g_in.surveyed, ranch1 = atRanch();
+			int nodes1 = calls[N_GET_CLOSEST_VEHICLE_NODE_WITH_HEADING];
+			bool written = GetFileAttributesA(IntroSpotsPath().c_str()) != INVALID_FILE_ATTRIBUTES;
+			V3 O1 = g_in.O, D1 = g_in.D, VR1 = g_in.VR, B1 = g_in.B, ranchAt1 = g_in.ranch;
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			reset(); srand(132);
+			mockTime = 1.0f;
+			IntroStart();
+			int k = ToStage(11, 3);
+			bool fromFile2 = g_in.surveyed, ranch2 = atRanch();
+			int nodes2 = calls[N_GET_CLOSEST_VEHICLE_NODE_WITH_HEADING];
+			float dO = (g_in.O - O1).len(), dD = (g_in.D - D1).len(), dVR = (g_in.VR - VR1).len(), dB = (g_in.B - B1).len(), dR = (g_in.ranch - ranchAt1).len();
+			ToStage(k, 4);
+			bool scene = g_in.stage == 4;
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			RestoreSpots();
+			sprintf_s(det, "no file: read from it %d, taken to the ranch %d, road-node lookups %d, file written %d | with the file: read from it %d, taken to the ranch %d, road-node "
+				"lookups %d; the places moved by ridge %.3f, toward the ranch %.4f, Valentine road %.3f, balloon %.3f, ranch %.3f; the scene starts %d", (int)fromFile1, (int)ranch1,
+				nodes1, (int)written, (int)fromFile2, (int)ranch2, nodes2, dO, dD, dVR, dB, dR, (int)scene);
+			check("intro: the places are surveyed once, then read from TornadoRedemption_intro.txt", !fromFile1 && ranch1 && nodes1 >= 1 && written && fromFile2 && !ranch2 &&
+				nodes2 == 0 && dO < 0.02f && dD < 0.001f && dVR < 0.02f && dB < 0.05f && dR < 0.02f && scene, det);
 		}
-		// 133. (v1.6.1, playtest 15) Lenny went round stiff even with his sitting clip playing (frozen in mid-air): the posed riders ride an
-		// invisible carrier they're attached to, and the carrier is what's flown (they go round with it); released, they're let off it. At the
-		// hand-back the game's camera looks the way he's escaping - away from the funnel ("flip the camera around when it hands it back")
-		reset(); srand(133);
+		// 133. (v1.7, v1.7.1) the camp's map pieces (Rockstar's camp at Horseshoe Overlook): the build asks only for those not already on (the
+		// abandoned camp put away first, if it was up); they stay up all through the scene (v1.7.1: switching them off mid-scene came just
+		// before playtest 19's crash) and go back the way they were once the scene's over and Arthur is 350 m+ away - the ones it asked for
+		// off, the abandoned camp back, the one that was already on kept. No fallback props when the camp came up. A scene started again
+		// before they're put back takes them over (asking again only for any that went). A chapter 2 save (the gang's real camp up): none
+		// asked for, none taken away
 		{
+			// a later chapter: the abandoned camp is up, and one of the tents happens to be on
+			reset(); srand(133);
+			Hash already = (Hash)kCampIpls[5];
+			iplActive.insert((Hash)kCampAbandonedIpl); iplActive.insert(already);
 			mockTime = 1.0f;
 			IntroStart();
-			bool lennyOn = false, javierOn = false, lennyRound = false, offAfter = false;
-			float lennyR = 0;
-			for (int k = 11; k <= 2400 && !(g_in.stage == 0 && k > 200); k++)
-			{
-				tick2(T(k));
-				float c = (float)g_in.clock;
-				CastState& L = g_in.cast[CA_LENNY];
-				CastState& J = g_in.cast[CA_JAVIER];
-				if (g_in.stage == 4 && c > 84.0f && c < 90.0f)
-				{
-					if (L.carrier && attachedTo.count(L.ped) && attachedTo[L.ped] == L.carrier) lennyOn = true;
-					if (J.carrier && attachedTo.count(J.ped) && attachedTo[J.ped] == J.carrier) javierOn = true;
-					if (ITp() && L.ped)
-					{
-						float r = (V3(ENTITY::GET_ENTITY_COORDS(L.ped, FALSE, FALSE)) - ITp()->base).len2d();
-						lennyR = std::max(lennyR, r);
-						if (r > 3.0f) lennyRound = true;
-					}
-				}
-				if (g_in.stage == 5 && L.released && !attachedTo.count(L.ped)) offAfter = true;
-				if (g_in.stage == 5 && offAfter) break;
-			}
-			V3 esc = FlatDir(ITp() ? ITp()->base : g_in.C, g_bal.on ? g_bal.pos : playerPos);
-			V3 look = HeadingDir(ENTITY::GET_ENTITY_HEADING(PLAYER::PLAYER_PED_ID()) + mockCamRelHeading);
-			float along = look.x * esc.x + look.y * esc.y;
-			sprintf_s(det, "Lenny on his carrier %d (going round it, out to %.0f m from the funnel's axis %d), Javier on his %d, let off when released %d; "
-				"the camera handed back %.0f deg from where he faces, looking along his escape %.2f", (int)lennyOn, lennyR, (int)lennyRound, (int)javierOn, (int)offAfter,
-				mockCamRelHeading, along);
+			int k = ToStage(11, 4);
+			std::set<Hash> wanted;
+			for (int h : kCampIpls) if ((Hash)h != already) wanted.insert((Hash)h);
+			std::set<Hash> asked(iplRequested.begin(), iplRequested.end());
+			bool askedRight = asked == wanted && iplRequested.size() == wanted.size();
+			int askedN = (int)iplRequested.size();
+			bool abandonedAway = !iplActive.count((Hash)kCampAbandonedIpl) && std::count(iplRemoved.begin(), iplRemoved.end(), (Hash)kCampAbandonedIpl) == 1;
+			bool campUp = g_in.campMap && !g_in.realCamp, noProps = g_in.props.empty();
+			k = ToClock(k, kIntroShotAt[SH_ARRIVE] + 1.0);   // (the camp's long gone; Arthur's at the ridge)
+			int onInScene = 0;
+			for (Hash h : wanted) if (iplActive.count(h)) onInScene++;
+			int removedInScene = (int)iplRemoved.size();
 			IntroAbort("harness");
-			check("intro: the riders on carriers (they animate), the camera handed back looking the way he escapes", lennyOn && lennyRound && javierOn && offAfter && along > 0.9f, det);
+			for (int j = 0; j < 15; j++) tick2(T(k++));
+			int stillOn = 0;
+			for (Hash h : wanted) if (iplActive.count(h)) stillOn++;
+			bool keptTheirs = iplActive.count(already) != 0, abandonedBack = iplActive.count((Hash)kCampAbandonedIpl) != 0;
+			DespawnAll(); BalloonRemove("harness");
+			// started again before they're put back (he never left the camp): the new scene takes them over
+			reset(); srand(133);
+			mockTime = 1.0f;
+			IntroStart();
+			k = ToClock(11, 3.0);
+			IntroAbort("harness");
+			for (int j = 0; j < 15; j++) tick2(T(k++));
+			int pending = (int)g_iplPending.size();
+			bool keptNear = true;
+			for (int h : g_iplPending) if (!iplActive.count((Hash)h)) keptNear = false;
+			Hash lost[2] = { (Hash)g_iplPending[0], (Hash)g_iplPending[1] };
+			iplActive.erase(lost[0]); iplActive.erase(lost[1]);   // (the game dropped two of them meanwhile)
+			size_t asked0 = iplRequested.size();
+			IntroStart();
+			k = ToStage(k, 4);
+			std::set<Hash> askedAgain(iplRequested.begin() + asked0, iplRequested.end());
+			bool adopted = (int)g_in.iplOn.size() == pending && g_iplPending.empty() && askedAgain == std::set<Hash>(lost, lost + 2) && iplRequested.size() - asked0 == 2;
+			IntroAbort("harness");
+			playerPos = kCampCentre + V3(0, 600.0f, 0);
+			for (int j = 0; j < 15; j++) tick2(T(k++));
+			int afterAway = 0;
+			for (int h : kCampIpls) if ((Hash)h != (Hash)kCampBaseAlt[0] && iplActive.count((Hash)h)) afterAway++;
+			DespawnAll(); BalloonRemove("harness");
+			// chapter 2: the real camp is up
+			reset(); srand(133);
+			iplActive.insert((Hash)kCampBaseAlt[0]);
+			mockTime = 1.0f;
+			IntroStart();
+			k = ToClock(11, kIntroShotAt[SH_ARRIVE] + 1.0);
+			bool real = g_in.realCamp && g_in.campMap;
+			IntroAbort("harness");
+			for (int j = 0; j < 15; j++) tick2(T(k++));
+			int asked2 = (int)iplRequested.size(), removed2 = (int)iplRemoved.size();
+			bool baseKept = iplActive.count((Hash)kCampBaseAlt[0]) != 0;
+			DespawnAll(); BalloonRemove("harness");
+			sprintf_s(det, "later chapter: asked for %d of the %d not on (exactly those %d), the abandoned camp put away %d, Rockstar's camp up %d (no props %d); at the ridge: "
+				"still on %d, removed %d (the abandoned camp only); scene over, Arthur away: still on %d, the tent that was on kept %d, the abandoned camp back %d | "
+				"again before they're put back: %d kept while he's near %d, the new scene took them over %d (asked again only for the 2 that went), put back once he's "
+				"away (%d still on) | chapter 2: the real camp %d, asked for %d, removed %d, its base kept %d",
+				askedN, (int)wanted.size(), (int)askedRight, (int)abandonedAway, (int)campUp, (int)noProps, onInScene, removedInScene, stillOn,
+				(int)keptTheirs, (int)abandonedBack, pending, (int)keptNear, (int)adopted, afterAway, (int)real, asked2, removed2, (int)baseKept);
+			check("intro: the camp's map pieces kept through the scene, put back the way they were once it's over and he's away", askedRight && abandonedAway && campUp &&
+				noProps && onInScene == (int)wanted.size() && removedInScene == 1 && stillOn == 0 && keptTheirs && abandonedBack && pending > 2 && keptNear && adopted &&
+				afterAway == 0 && real && asked2 == 0 && removed2 == 0 && baseKept, det);
 		}
 		// 134. (v1.6.2) five crashes, all in Saint Denis, the logged ones each ending on an empty entity-list read: in and near a big town
 		// the object list isn't read (Script Hook's read hands every entity a script handle - the city runs the game out of them);
-		// after an empty read the next read waits 1.5 s (it used to retry 10 times a second); the intro won't stage in Saint Denis
+		// after an empty read the next read waits 1.5 s (it used to retry 10 times a second). (v1.7: the intro takes Arthur
+		// from Saint Denis to the camp - it's no longer refused there)
 		reset(); srand(134);
 		{
 			int o = nextObject++; objects[o].type = 3; objects[o].p = V3(2600, -1250, 1);
@@ -3845,15 +4111,18 @@ int main()
 			RefreshPool(5003.6f);
 			int after = PoolEmptyReads() - reads0;
 			emptyPool = false;
-			// the intro in Saint Denis
+			// the intro from Saint Denis (v1.7: it takes Arthur to the camp - no longer refused there)
 			playerPos = V3(2600, -1250, 1);
-			mockTime = 6000.0f;
+			mockTime = 600.0f;
 			IntroStart();
-			bool refused = g_in.stage == 0;
-			sprintf_s(det, "objects read in Saint Denis %d (skipped %d), in the open %d; empty reads: %d at once, %d within 1 s, %d after 1.6 s; the intro in Saint Denis refused %d",
-				objsInCity, (int)skipped, objsOutside, afterFirst, within, after, (int)refused);
-			check("Saint Denis: no object list in a big town, a back-off after an empty read, no intro in the city", objsInCity == 0 && skipped && objsOutside >= 2 &&
-				afterFirst == 1 && within == 1 && after == 2 && refused, det);
+			bool started = g_in.stage == 1;
+			for (int k = 6001; k <= 6100 && g_in.stage < 3; k++) tick2(T(k));
+			float fromCamp = (playerPos - kCampMuster).len2d();
+			IntroAbort("harness"); DespawnAll(); BalloonRemove("harness");
+			sprintf_s(det, "objects read in Saint Denis %d (skipped %d), in the open %d; empty reads: %d at once, %d within 1 s, %d after 1.6 s; the intro from Saint Denis started %d, "
+				"Arthur %.0f m from the camp's muster spot once it's built", objsInCity, (int)skipped, objsOutside, afterFirst, within, after, (int)started, fromCamp);
+			check("Saint Denis: no object list in a big town, a back-off after an empty read; the intro takes you out of the city", objsInCity == 0 && skipped && objsOutside >= 2 &&
+				afterFirst == 1 && within == 1 && after == 2 && started && fromCamp < 20.0f, det);
 		}
 		reset();
 		printf("Result: %d fixed, %d still broken (control flow only - no game was run).\n", fixedCount, brokenCount);

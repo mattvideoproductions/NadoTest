@@ -1,4 +1,4 @@
-// NadoTest v1.1 - Storm season: tornadoes that turn up on their own. Part of script.cpp.
+// Tornado Redemption v1.1 - Storm season: tornadoes that turn up on their own. Part of script.cpp.
 //
 // The user, after v1.0: "can we make a random weather event tornado so it appears on the map and wanders towards the player,
 // a fun natural mode too". With Storm season on, every so often (Rare ~12-25 min, Regular ~6-12, Frequent ~2.5-5) the sky

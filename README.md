@@ -1,10 +1,12 @@
-# NadoTest: a tornado mod for Red Dead Redemption 2 (story mode)
+# Tornado Redemption: a tornado mod for Red Dead Redemption 2 (story mode)
+
+*Formerly NadoTest (the name you'll see in the video). Same mod, final version.*
 
 Red Dead Redemption 2 has no tornadoes, so this mod builds one. A dark funnel reaches down out of the storm clouds. A ring of dust
 blasts out when it touches down. Planks, barrels, wheels, whole logs and real trees spiral up its cone, and it pulls in people,
 horses, wagons and props, whirls them round and hurls them across the map. Arthur too, if you let it.
 
-It has a 100-second cutscene with the Van der Linde gang that runs straight into gameplay, plus:
+It opens with a cinematic cutscene with the Van der Linde gang that runs straight into gameplay, plus:
 - **voices**: Arthur, the gang and passers-by react out loud with the game's own lines ("Thanks for the lift.")
 - **twelve kinds of tornado**: a Firenado, a Ghost Twister, a Snow Devil, a Dust Devil, a Waterspout, a Multi-vortex, a Junknado
   made of flying junk, and a cartoon **Toon Twister**
@@ -19,9 +21,11 @@ Made by **MattVidPro** with **Claude** (Anthropic's AI). Claude wrote the code f
 (**Astra**) audited it between rounds. A video about how it was made is coming to MattVidPro's YouTube channel.
 
 ## ⬇️ Download
-**[Get the latest release here](https://github.com/mattvideoproductions/NadoTest/releases/latest)** and download `NadoTest-v1.6.2.zip` (or just `NadoTest.asi` and `NadoTest.ini`).
-`NadoTest.asi` and `NadoTest.ini` are also at the top of this repo, so the green **Code → Download ZIP** button gets you a
-working copy too.
+**[Get the latest release here](https://github.com/mattvideoproductions/TornadoRedemption/releases/latest)** and download `TornadoRedemption-v1.7.3.zip` (or just `TornadoRedemption.asi` and `TornadoRedemption.ini`).
+`TornadoRedemption.asi` and `TornadoRedemption.ini` are also at the top of this repo, so the green **Code → Download ZIP** button
+gets you a working copy too.
+
+**Had NadoTest before?** Delete `NadoTest.asi` from your game folder (both would run at once). Your best scores and settings carry over.
 
 > ⚠️ **Story mode only.** Script Hook RDR2 shuts the game down if you go online. Don't use this in Red Dead Online.
 >
@@ -36,27 +40,26 @@ working copy too.
    `ScriptHookRDR2.dll` and `dinput8.dll` into your Red Dead Redemption 2 folder (the one with `RDR2.exe`).
    - Steam: right-click the game → Manage → Browse local files.
    - Rockstar launcher: Settings → My installed games → Open folder.
-2. Download **`NadoTest-v1.6.2.zip`** from the [latest release](https://github.com/mattvideoproductions/NadoTest/releases/latest) and copy **`NadoTest.asi`** and **`NadoTest.ini`** from
-   it into the same folder.
-3. Start **Story Mode**. After loading you'll see *"NadoTest v1.6.2 loaded"* at the bottom of the screen.
+2. Download **`TornadoRedemption-v1.7.3.zip`** from the [latest release](https://github.com/mattvideoproductions/TornadoRedemption/releases/latest) and
+   copy **`TornadoRedemption.asi`** and **`TornadoRedemption.ini`** from it into the same folder.
+3. Start **Story Mode**. After loading you'll see *"Tornado Redemption v1.7.3 loaded"* at the bottom of the screen.
 4. Press **`\`** (or **hold RB and press D-pad right** on a controller) to open the menu, then pick **Spawn tornado**. It touches down
    where you're looking, and the camera swings round to show you.
-5. Run. Or don't. Or open **Modes & toys** and play the intro.
+5. Run. Or don't. Or open **Modes & toys** and play the intro, **Storm Chasers**.
 
-**Uninstall:** delete `NadoTest.asi` and `NadoTest.ini`, plus the `NadoTest*.log`, `NadoTest_*.txt` and `NadoTest_*.wav` files it
-writes.
+**Uninstall:** delete `TornadoRedemption.asi` and `TornadoRedemption.ini`, plus the `TornadoRedemption*.log`, `TornadoRedemption_*.txt`
+and `TornadoRedemption_*.wav` files it writes.
 
 ## What's in it
-- **The intro: Arthur Had a Feeling** (Modes & toys): a 100-second cutscene, then you're flying.
-  - Arthur stands in a hot air balloon at the edge of camp before anyone's noticed a cloud. The gang wants to know what's got into
-    him. Then the tornado comes, and he pulls the burner and leaves them to it.
-  - Every line is the gang's own voice, with the game's own subtitles, and twenty are their real lines from the story, in
-    back-and-forths with Dutch, Hosea, John, Bill, Micah, Uncle, Javier and Lenny. Arthur tells them why he's leaving ("I ain't
-    dying for whatever nonsense Micah and Dutch have concocted..."). They go up as ragdolls, with whatever they were holding.
-  - Arthur swoops the balloon low across the camp and takes Micah out on his way up.
-  - Its cameras find their own way round trees and hills, so they always see who's talking.
-  - Stand somewhere open and flat (not in Saint Denis); the camp is built around you and the storm comes from where you look.
-    Backspace (B) skips.
+- **The intro: Storm Chasers** (Modes & toys): a cutscene, then a run for your life.
+  - From anywhere, the game takes you to the gang's camp at Horseshoe Overlook on a sunny morning (Rockstar's own camp, the gang at
+    their own chores). Dutch, John, Micah and Arthur tell Susan Grimshaw and Abigail they're off; Micah and Arthur bicker.
+  - They ride out, past Valentine, and pull up on a ridge above Emerald Ranch as the weather turns. Thunder. The tornado comes down
+    on the ranch, and then it comes for them. John and Dutch run. Arthur, standing next to Micah, has a better idea.
+  - Then it's yours: reach the hot air balloon that's appeared behind you (the dog's already in it), the tornado on your heels.
+  - Every line is a real line from the game's story, in the characters' own voices, with the game's own subtitles.
+  - The first time, the screen stays black a few seconds longer while it finds a road out of Valentine and a ridge over the
+    ranch in your game (remembered in `TornadoRedemption_intro.txt`). Backspace (B) skips.
 - **Jet balloon:** a hot air balloon with jets, right where you stand. It flies where you look, and the tornado leaves you alone
   while you're in it.
 - **Storm chaser:** 90 seconds in the balloon. Get as close to the funnel as you dare; the closer, the faster the points. Touch the
@@ -118,7 +121,7 @@ writes.
   - **Landings:** eight kinds, from caught soft to a meteor into the ground (Mixed). He isn't invincible by default.
   - A **ride camera** circles him while he's up there.
 
-## Controls (all rebindable in `NadoTest.ini`)
+## Controls (all rebindable in `TornadoRedemption.ini`)
 | | Keyboard | Controller |
 |---|---|---|
 | Open / close the menu | `\` | hold **RB**, press **D-pad right** |
@@ -166,21 +169,19 @@ Every item explains itself at the bottom of the menu. The pages:
 - **Tests & tools:** a hands-free showcase, the self-test, a systems check, a drop test, the tree demo, a map-tree check, style
   tours, developer tools (including a voice audition that plays every reaction line).
 
-**Set your own defaults** in `NadoTest.ini`:
+**Set your own defaults** in `TornadoRedemption.ini`:
 - `[Defaults]`: style, strength, size, speed, movement, reach, Arthur, fling, invincible, landings, things thrown at Arthur, cameras,
   real trees, flattened grass, Storm season
 - `[Performance]`: Mode
 - `[Storm]`: Weather, WindRoar, DarkSky
 - `[Sound]`: TornadoRoar, RoarVolume, MissionMusic, Voices, Chatter, VoiceSubtitles, StormReport
-- `[Intro]`: hour, colour grade, Outfits (Gag or Story)
+- `[Intro]`: CampMap (Rockstar's camp, its base layout only, or the mod's own props)
 - `[UI]`: Style
 
 ## The intro's lines
-Every line in the intro is the character's own voice, with the game's own subtitle (turn the game's Subtitles option on).
-- **Story lines:** nine are the characters' real lines from the story, played by name as one line of one of Rockstar's own
-  conversations, so the words are exact. If the game won't play one, an ambient line plays in its place.
-- **Ambient lines:** the rest come from their in-game voice banks. The game picks which recording plays, so the exact words vary a
-  little from take to take.
+All eleven lines in the intro are the characters' real lines from the game's story, played by name as one line of one of
+Rockstar's own conversations, so the words are exact (turn the game's Subtitles option on to see them). If the game won't play
+one, an ambient line in the same voice plays in its place.
 
 ## How it works (short version)
 - **The funnel:** looping smoke effects placed in the world and moved every frame along a cone that leans and sways with the tornado,
@@ -200,12 +201,9 @@ Every line in the intro is the character's own voice, with the game's own subtit
   1. Rays from the funnel find narrow, tall, vertical trunks.
   2. The map's tree models loaded nearby are hidden in a small circle there.
   3. A spawnable stand-in tree of the same family is torn out instead.
-- **The intro:**
-  - The story characters are dressed the way Rockstar's camp scripts do it (or, by default, in outfits Rockstar puts Uncle and Dutch
-    in elsewhere), and do real camp activities. When the tornado takes them they're ragdolls in the real funnel, still holding
-    what they had.
-  - The people it carries "posed" are frozen and flown round the funnel by the mod, so Uncle keeps sleeping and Javier keeps
-    playing.
+- **The intro:** the camp is the map pieces Rockstar's camp script switches on for Horseshoe Overlook (put back afterwards), the
+  gang take Rockstar's own camp spots, and every shot has a camera director that moves the camera until it can see who it's
+  meant to show. The riders are moved between the three places at the cuts, each cut waiting for the next place to load.
 - **The balloon:** the game's own balloon, steered every frame with the balloon natives Rockstar's balloon mission uses. If those
   don't take, it falls back to moving the balloon directly.
 - **New ways to draw a funnel** (v1.2): each style can carry its own smoke colour or keep the effects' own (fire, steam, snow);
@@ -217,7 +215,7 @@ Every line in the intro is the character's own voice, with the game's own subtit
 - **Built-in tests:**
   - The self-test spawns tornadoes, injects faults and checks for leaks.
   - The systems check covers the balloon, the gun, the Storm season warning, Arthur's voice lines and a Junknado in your game.
-  - `NadoTest.log` records everything; `NadoTest_findings.txt` records results and your notes.
+  - `TornadoRedemption.log` records everything; `TornadoRedemption_findings.txt` records results and your notes.
 
 ## Known issues and limits
 - **Real trees are experimental.** Whether the hidden map tree's collision goes too, and whether every tree type hides, is still
@@ -226,8 +224,8 @@ Every line in the intro is the character's own voice, with the game's own subtit
   seen in a moving funnel yet. If one draws badly, the gallery shows it straight away; tell us which.
 - **Voices** use Rockstar's ambient lines, so what exactly is said varies; not every voice has every line (the mod falls back or
   stays quiet). Characters can't say "Matt".
-- **The intro is built where you stand:** open, flat ground looks best. Hills and woods work
-  but can hide the gang.
+- **The intro's places are found in your game** the first time: if its ridge isn't a good one, delete
+  `TornadoRedemption_intro.txt` and it looks again. If Rockstar's camp pieces look wrong, set `[Intro] CampMap=Base` or `None`.
 - **The balloon:** the game's balloon is known to sometimes appear without its cloth envelope (a game quirk); you can still fly the
   basket.
 - **Mission music is Rockstar's score:** it may be claimed if you upload footage. It's off by default.
@@ -248,7 +246,7 @@ Every line in the intro is the character's own voice, with the game's own subtit
 2. **The Script Hook RDR2 SDK** from http://www.dev-c.com/rdr2/scripthookrdr2/. Its licence doesn't allow redistribution, so it isn't
    in this repository. Extract it into **`sdk\`** next to `build.bat`, so that you have `sdk\inc\main.h` and
    `sdk\lib\ScriptHookRDR2.lib` (or set the `SDK` environment variable to wherever it is).
-3. Run **`build.bat`**. It produces `bin\NadoTest.asi` and copies `NadoTest.ini` next to it.
+3. Run **`build.bat`**. It produces `bin\TornadoRedemption.asi` and copies `TornadoRedemption.ini` next to it.
 4. **Tests:** `tools\harness\run_harness.bat` runs the offline regression scenarios against a mock made from your SDK (control flow
    only, no game needed). Exit code 0 = all pass.
 5. `src\nat.h` and `tools\harness\hashes.h` are generated by `tools\gen_natives.py` from alloc8or's rdr3-nativedb data

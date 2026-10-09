@@ -1,4 +1,4 @@
-// NadoTest - shared helpers implementation.
+// Tornado Redemption - shared helpers implementation.
 #include "common.h"
 #include "ui.h"
 #include <cstdio>
@@ -22,12 +22,12 @@ void LogInit(HMODULE module)
 	g_dir = (slash == std::string::npos) ? "." : p.substr(0, slash);
 	FILE* f = nullptr;
 	// Append so earlier game sessions survive a crash/relaunch.
-	if (fopen_s(&f, (g_dir + "\\NadoTest.log").c_str(), "a") == 0 && f)
+	if (fopen_s(&f, (g_dir + "\\TornadoRedemption.log").c_str(), "a") == 0 && f)
 	{
 		time_t now = time(nullptr);
 		char ts[64];
 		ctime_s(ts, sizeof(ts), &now);
-		fprintf(f, "\n===== NadoTest session started %s", ts);
+		fprintf(f, "\n===== Tornado Redemption session started %s", ts);
 		fclose(f);
 	}
 }
@@ -51,7 +51,7 @@ void Log(const char* fmt, ...)
 {
 	va_list args;
 	va_start(args, fmt);
-	AppendLine("NadoTest.log", "", fmt, args);
+	AppendLine("TornadoRedemption.log", "", fmt, args);
 	va_end(args);
 }
 
@@ -59,10 +59,10 @@ void Finding(const char* fmt, ...)
 {
 	va_list args;
 	va_start(args, fmt);
-	AppendLine("NadoTest_findings.txt", "", fmt, args);
+	AppendLine("TornadoRedemption_findings.txt", "", fmt, args);
 	va_end(args);
 	va_start(args, fmt);
-	AppendLine("NadoTest.log", "FINDING: ", fmt, args);
+	AppendLine("TornadoRedemption.log", "FINDING: ", fmt, args);
 	va_end(args);
 }
 
@@ -234,7 +234,7 @@ Object SpawnAnchor(const V3& pos)
 	if (g_anchorLodDefault < 0)
 	{
 		g_anchorLodDefault = ENTITY::GET_ENTITY_LOD_DIST(o);
-		Log("anchor prop p_apple01x: game LOD distance %d m (NadoTest sets %d)", g_anchorLodDefault, g_anchorLod);
+		Log("anchor prop p_apple01x: game LOD distance %d m (the mod sets %d)", g_anchorLodDefault, g_anchorLod);
 	}
 	if (g_anchorLod > 0)
 		ENTITY::SET_ENTITY_LOD_DIST(o, g_anchorLod);

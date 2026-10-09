@@ -32,10 +32,22 @@ a second after every cut, held cuts within budget, far lines beside the camera, 
 through the catch - sky-high climbs, far soft glides, the meteor dives and costs nothing, none of the far ones in town; the intro's
 story-mode gestures, Micah knocked flat by the balloon, Dutch's pass across the frame, close-ups at Arthur's face, the gang going up
 from the camp's edge); 133 covers v1.6.1 (the posed riders on carriers, and the camera handed back looking the way he escapes); 134 covers v1.6.2 (no object
-list in Saint Denis, a back-off after an empty read, no intro in the city).
+list in Saint Denis, a back-off after an empty read; v1.7: the intro takes you out of the city).
+**v1.7 (the new intro, "Storm Chasers").** The scenarios that tested the old intro were rewritten in place (same numbers): 59 the play-through
+to the handoff, 60 an early skip, 61 death mid-scene, 72 the weather handed back, 76 the scene's sky and lightning, 77 the 10 s shield,
+grabbable, boarding and the end, 78 no streaming waits, 88 / 107 what Despawn everything clears (and a lost balloon), 91 the push and
+Micah into the funnel, 94b a script restart in the scene / the run for the balloon, 96 Arthur's horse and the 150 s time-out, 98 the
+fallback camp and the anim dictionaries, 110 / 120 skips firing nothing late, 119 the story lines (over every row of kIntroLines)
+and their fallbacks, 124 the camera director, 130 / 130b the ears, held cuts and the wait for a new place's ground, 132 the places
+file (TornadoRedemption_intro.txt, backed up and put back), 133 the camp's map pieces (IPLs; v1.7.1: kept through the scene, put back once
+it's over and Arthur is 350 m+ away, taken over by a scene started again); v1.7.1 adds 119b (a wrong take from a random set drawn
+again) and turns 130b into the dips to black (waiting in the dark for the ground round Arthur). The mock grew IPLs (requested / removed /
+active, or never coming up), collision per place and round an entity, mounts (a rider - Arthur too - is where its horse is, and is left there when he gets off), the take a conversation drew, entity blips, PAUSE_CLOCK, Arthur's
+teleports, visibility and the intro's clock on every line; the mod's GetTickCount moves on 50 ms per mock WAIT, so a blocking
+build loop with a real-time timeout ends quickly.
 The mock keeps attached things where their parent is. The mock now has peds, speech (what was said, by whom, when; lines a voice lacks), scripted conversations (created, voices
 added, the single line asked for, playing or not), vehicles, seats, attachments and a small
 shape-test world, and records the timecycle modifier, music events, ragdoll / invincible / config flags, released models and
-anim dictionaries; a scenario can count streaming waits instead of failing on one. Current result: **134 fixed, 0 still broken**. The mock has crude physics (gravity + velocity for unfrozen objects) so the self-test can run
+anim dictionaries; a scenario can count streaming waits instead of failing on one. Current result: see the last line of a run (137 checks since v1.7.1). The mock has crude physics (gravity + velocity for unfrozen objects) so the self-test can run
 end to end: expect `clean mock run: 0 failures`. `hashes.h` is generated together with `src\nat.h` by
 `tools\gen_natives.py`, so every native the mod uses is available to the mock.

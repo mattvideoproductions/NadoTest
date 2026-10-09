@@ -260,6 +260,26 @@ namespace HUD { static inline void TEXT_BLOCK_DELETE(const char* textBlock) { in
 namespace PED { static inline Vector3 GET_PED_BONE_COORDS(Ped ped, int boneId, float offsetX, float offsetY, float offsetZ) { return invoke<Vector3>(0x17C07FC640E86B4E, ped, boneId, offsetX, offsetY, offsetZ); } }
 namespace PED { static inline void REQUEST_PED_GETUP_ANIMATION(Ped ped, const char* getUpType) { invoke<Void>(0xEAA8242C8479C27D, ped, getUpType); } }
 namespace AUDIO { static inline BOOL PLAY_AMBIENT_SPEECH_FROM_POSITION_NATIVE(float x, float y, float z, int* params) { return invoke<BOOL>(0xED640017ED337E45, x, y, z, params); } }
+namespace STREAMING { static inline void REQUEST_IPL_HASH(Hash iplHash) { invoke<Void>(0x59767C5A7A9AE6DA, iplHash); } }
+namespace STREAMING { static inline BOOL IS_IPL_ACTIVE_HASH(Hash iplHash) { return invoke<BOOL>(0xD779B9B910BD3B7C, iplHash); } }
+namespace STREAMING { static inline void REMOVE_IPL_HASH(Hash iplHash) { invoke<Void>(0x5A3E5CF7B4014B96, iplHash); } }
+namespace STREAMING { static inline void REQUEST_COLLISION_AT_COORD(float x, float y, float z) { invoke<Void>(0x0A3720F162A033C9, x, y, z); } }
+namespace STREAMING { static inline BOOL HAS_COLLISION_LOADED_AT_COORD(float x, float y, float z) { return invoke<BOOL>(0xDA8B2EAF29E872E2, x, y, z); } }
+namespace STREAMING { static inline BOOL LOAD_SCENE_START_SPHERE(float x, float y, float z, float radius, int p4) { return invoke<BOOL>(0x513F8AA5BF2F17CF, x, y, z, radius, p4); } }
+namespace STREAMING { static inline void LOAD_SCENE_STOP() { invoke<Void>(0x5A8B01199C3E79C3); } }
+namespace PATH { static inline BOOL GET_CLOSEST_VEHICLE_NODE_WITH_HEADING(float x, float y, float z, Vector3* outPosition, float* outHeading, int nodeType, float p6, float p7) { return invoke<BOOL>(0x23CFFD4CCB243354, x, y, z, outPosition, outHeading, nodeType, p6, p7); } }
+namespace WATER { static inline BOOL GET_WATER_HEIGHT(float x, float y, float z, float* height) { return invoke<BOOL>(0xFCA8B23F28813F69, x, y, z, height); } }
+namespace PED { static inline void SET_PED_ONTO_MOUNT(Ped ped, Ped mount, int seatIndex, BOOL p3) { invoke<Void>(0x028F76B6E78246EB, ped, mount, seatIndex, p3); } }
+namespace PED { static inline void REMOVE_PED_FROM_MOUNT(Ped ped, BOOL p1, BOOL p2) { invoke<Void>(0x5337B721C51883A9, ped, p1, p2); } }
+namespace PED { static inline void EQUIP_META_PED_OUTFIT_PRESET(Ped ped, int presetId, BOOL p2) { invoke<Void>(0x77FF8D35EEC6BBC4, ped, presetId, p2); } }
+namespace TASK { static inline void TASK_USE_NEAREST_SCENARIO_TO_COORD_WARP(Ped ped, float x, float y, float z, float distance, int duration, BOOL p6, BOOL p7, BOOL p8, BOOL p9) { invoke<Void>(0x58E2E0F23F6B76C3, ped, x, y, z, distance, duration, p6, p7, p8, p9); } }
+namespace TASK { static inline void TASK_WANDER_IN_AREA(Ped ped, float x, float y, float z, float radius, float p5, float p6, int p7) { invoke<Void>(0xE054346CA3A0F315, ped, x, y, z, radius, p5, p6, p7); } }
+namespace TASK { static inline void TASK_FOLLOW_NAV_MESH_TO_COORD(Ped ped, float x, float y, float z, float speedMultiplier, int timeout, float stoppingRange, int flags, float heading) { invoke<Void>(0x15D3A79D4E44B913, ped, x, y, z, speedMultiplier, timeout, stoppingRange, flags, heading); } }
+namespace TASK { static inline void TASK_TURN_PED_TO_FACE_ENTITY(Ped ped, Entity targetEntity, int duration, float p3, float p4, float p5) { invoke<Void>(0x5AD23D40115353AC, ped, targetEntity, duration, p3, p4, p5); } }
+namespace MAP { static inline Blip BLIP_ADD_FOR_ENTITY(Hash blipHash, Entity entity) { return invoke<Blip>(0x23F74C2FDA6E7C61, blipHash, entity); } }
+namespace AUDIO { static inline int GET_CURRENT_SCRIPTED_CONVERSATION_LINE(const char* p0) { return invoke<int>(0x480357EE890C295A, p0); } }
+namespace ENTITY { static inline BOOL HAS_COLLISION_LOADED_AROUND_ENTITY(Entity entity) { return invoke<BOOL>(0xBEB1600952B9CF5C, entity); } }
+namespace AUDIO { static inline void CLEAR_CONVERSATION_HISTORY_FOR_SCRIPTED_CONVERSATION(const char* convoRoot) { invoke<Void>(0xEF51242E35242B47, convoRoot); } }
 namespace ENTITY { static inline void REMOVE_MODEL_HIDE(float x, float y, float z, float radius, Hash model, BOOL p5) { invoke<Void>(0x3F38A98576F6213A, x, y, z, radius, model, p5); } }
 namespace AUDIO { static inline void PLAY_SINGLE_LINE_OF_CONVERSATION(const char* convoRoot, int lineIndex) { invoke<Void>(0x40CA665AB9D8D505, convoRoot, lineIndex); } }
 namespace MISC { static inline const char* VAR_STRING_LITERAL(const char* s) { return invoke<const char*>(0xFA925AC00EB830B9, 10, "LITERAL_STRING", s); } }

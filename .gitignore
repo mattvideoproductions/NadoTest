@@ -13,8 +13,9 @@ research/
 tools/harness/work/
 # logs the mod writes when you test it from here
 *.log
-NadoTest_findings.txt
-NadoTest_trees.txt
-NadoTest_best.txt
-NadoTest_*.wav
-NadoTest_intro/
+TornadoRedemption_findings.txt
+TornadoRedemption_trees.txt
+TornadoRedemption_best.txt
+TornadoRedemption_intro.txt
+TornadoRedemption_*.wav
+TornadoRedemption_intro/

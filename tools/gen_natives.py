@@ -1,4 +1,4 @@
-# Generates src/nat.h: typed wrappers for the natives NadoTest uses, with hashes
+# Generates src/nat.h: typed wrappers for the natives Tornado Redemption uses, with hashes
 # and parameter types taken from alloc8or/rdr3-nativedb-data (research/natives.json).
 import json, sys, os
 here = os.path.dirname(os.path.abspath(__file__))
@@ -65,6 +65,10 @@ REMOVE_ANIM_DICT GET_FINAL_RENDERED_CAM_COORD GET_FINAL_RENDERED_CAM_ROT
 CREATE_NEW_SCRIPTED_CONVERSATION _IS_SCRIPTED_CONVERSATION_CREATED ADD_PED_TO_CONVERSATION START_SCRIPT_CONVERSATION
 IS_SCRIPTED_CONVERSATION_PLAYING STOP_SCRIPTED_CONVERSATION CLEAR_CONVERSATION_HISTORY TEXT_BLOCK_REQUEST TEXT_BLOCK_IS_LOADED _TEXT_BLOCK_DELETE
 GET_PED_BONE_COORDS _REQUEST_PED_GETUP_ANIMATION PLAY_AMBIENT_SPEECH_FROM_POSITION_NATIVE
+REQUEST_IPL_HASH IS_IPL_ACTIVE_HASH REMOVE_IPL_HASH REQUEST_COLLISION_AT_COORD _HAS_COLLISION_LOADED_AT_COORD LOAD_SCENE_START_SPHERE LOAD_SCENE_STOP
+GET_CLOSEST_VEHICLE_NODE_WITH_HEADING GET_WATER_HEIGHT SET_PED_ONTO_MOUNT _REMOVE_PED_FROM_MOUNT _EQUIP_META_PED_OUTFIT_PRESET
+TASK_USE_NEAREST_SCENARIO_TO_COORD_WARP TASK_WANDER_IN_AREA TASK_FOLLOW_NAV_MESH_TO_COORD TASK_TURN_PED_TO_FACE_ENTITY BLIP_ADD_FOR_ENTITY
+GET_CURRENT_SCRIPTED_CONVERSATION_LINE HAS_COLLISION_LOADED_AROUND_ENTITY _CLEAR_CONVERSATION_HISTORY_FOR_SCRIPTED_CONVERSATION
 """.split()
 TYPES = {'void':'void','int':'int','float':'float','BOOL':'BOOL','Hash':'Hash','const char*':'const char*',
          'Entity':'Entity','Ped':'Ped','Vehicle':'Vehicle','Object':'Object','Player':'Player','Any':'int',
@@ -94,7 +98,7 @@ for name in WANT:
 out.append('namespace ENTITY { static inline void REMOVE_MODEL_HIDE(float x, float y, float z, float radius, Hash model, BOOL p5) { invoke<Void>(0x3F38A98576F6213A, x, y, z, radius, model, p5); } }')
 # v1.3: play one line of a started conversation (unnamed in the DB; Rockstar calls it right after START_SCRIPT_CONVERSATION)
 out.append('namespace AUDIO { static inline void PLAY_SINGLE_LINE_OF_CONVERSATION(const char* convoRoot, int lineIndex) { invoke<Void>(0x40CA665AB9D8D505, convoRoot, lineIndex); } }')
-# VAR_STRING is variadic; NadoTest uses the literal-string form and (v1.1) a game text label (flags 2, as Rockstar).
+# VAR_STRING is variadic; Tornado Redemption uses the literal-string form and (v1.1) a game text label (flags 2, as Rockstar).
 out.append('namespace MISC { static inline const char* VAR_STRING_LITERAL(const char* s) { return invoke<const char*>(0xFA925AC00EB830B9, 10, "LITERAL_STRING", s); } }')
 out.append('namespace MISC { static inline const char* VAR_STRING_LABEL(const char* label) { return invoke<const char*>(0xFA925AC00EB830B9, 2, label); } }')
 # The DB types the handle as int, but Rockstar passes it by reference (REMOVE_VEG_MODIFIER_SPHERE(&handle, 1)). A pointer is

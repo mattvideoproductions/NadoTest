@@ -1,4 +1,4 @@
-// NadoTest - keyboard input with rebindable hotkeys (65% keyboards: no F-row / numpad needed).
+// Tornado Redemption - keyboard input with rebindable hotkeys (65% keyboards: no F-row / numpad needed).
 #pragma once
 #include <windows.h>
 #include <string>

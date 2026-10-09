@@ -1,4 +1,4 @@
-// NadoTest - DLL entry point (loaded by Script Hook RDR2's ASI loader).
+// Tornado Redemption - DLL entry point (loaded by Script Hook RDR2's ASI loader).
 #include "common.h"
 #include "input.h"
 

@@ -9,9 +9,9 @@ if not defined SDK if exist "%~dp0..\..\sdk\inc\main.h" set "SDK=%~dp0..\..\sdk"
 if not defined SDK set "SDK=%~dp0..\..\..\downloads\ScriptHookRDR2_SDK"
 if not exist "%SDK%\inc\main.h" (echo Script Hook RDR2 SDK not found at "%SDK%" - see README "Building from source" & exit /b 1)
 if exist work rmdir /s /q work
-mkdir work\NadoTest\src
+mkdir work\TornadoRedemption\src
 mkdir work\downloads\ScriptHookRDR2_SDK\inc
-xcopy /q /y ..\..\src\*.* work\NadoTest\src\ >nul
+xcopy /q /y ..\..\src\*.* work\TornadoRedemption\src\ >nul
 xcopy /q /y "%SDK%\inc\*.*" work\downloads\ScriptHookRDR2_SDK\inc\ >nul
 powershell -NoProfile -Command "$p='work\downloads\ScriptHookRDR2_SDK\inc\main.h'; (Get-Content $p) -replace '#define IMPORT __declspec\(dllimport\)','#define IMPORT' | Set-Content $p"
 copy /y harness.cpp work\ >nul
